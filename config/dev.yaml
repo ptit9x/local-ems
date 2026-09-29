@@ -1,0 +1,98 @@
+# Local EMS — Dev Configuration
+# 2 BMS, 2 PCS, 2 Meter, 2 EV Charger (all simulated on localhost)
+
+site:
+  id: "dev-site"
+  name: "Development Site"
+
+simulate: true
+
+devices:
+  bms:
+    - id: bms-0
+      host: 127.0.0.1
+      port: 5020
+      unit: 1
+    - id: bms-1
+      host: 127.0.0.1
+      port: 5020
+      unit: 2
+  pcs:
+    - id: pcs-0
+      host: 127.0.0.1
+      port: 5020
+      unit: 3
+      brand: generic
+      command_mode: individual
+    - id: pcs-1
+      host: 127.0.0.1
+      port: 5020
+      unit: 4
+      brand: generic
+      command_mode: individual
+  meter:
+    - id: meter-0
+      host: 127.0.0.1
+      port: 5020
+      unit: 5
+      role: grid
+    - id: meter-1
+      host: 127.0.0.1
+      port: 5020
+      unit: 6
+      role: solar
+  ev_charger:
+    - id: ev-0
+      host: 127.0.0.1
+      port: 5020
+      unit: 7
+      protocol: modbus
+    - id: ev-1
+      host: 127.0.0.1
+      port: 5020
+      unit: 8
+      protocol: modbus
+
+topology:
+  pcc_meter: meter-0
+  bess_groups:
+    - name: group-0
+      bms:
+        - bms-0
+      pcs:
+        - pcs-0
+      command_mode: individual
+    - name: group-1
+      bms:
+        - bms-1
+      pcs:
+        - pcs-1
+      command_mode: individual
+
+polling:
+  fast_ms: 200      # meter critical (grid power, frequency)
+  standard_ms: 1000 # PCS control loop
+  slow_ms: 5000     # full BMS cell scan
+
+engine:
+  cycle_ms: 1000
+  distribution: equal   # equal | proportional | round_robin
+
+storage:
+  driver: sqlite
+  dsn: /tmp/ems-dev.db
+  retention_days: 7
+  wal_mode: true
+
+sync:
+  enabled: false
+  mqtt_broker: "tcp://localhost:1883"
+  client_id: "dev-ems"
+  topic_prefix: "ems/dev"
+  interval_seconds: 300
+  buffer_days: 7
+
+ui:
+  port: 8080
+  username: admin
+  password: ems@2025

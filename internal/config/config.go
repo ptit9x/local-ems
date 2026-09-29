@@ -2,8 +2,12 @@
 package config
 
 import (
+	"bufio"
 	"fmt"
+	"log"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -15,15 +19,80 @@ type SiteConfig struct {
 }
 
 type Config struct {
-	Site     SiteConfig     `yaml:"site"`
-	Simulate bool           `yaml:"simulate"`
-	Devices  DevicesConfig  `yaml:"devices"`
-	Topology TopologyConfig `yaml:"topology"`
-	Polling  PollingConfig  `yaml:"polling"`
-	Engine   EngineConfig   `yaml:"engine"`
-	Storage  StorageConfig  `yaml:"storage"`
-	Sync     SyncConfig     `yaml:"sync"`
-	UI       UIConfig       `yaml:"ui"`
+	Site        SiteConfig        `yaml:"site"`
+	Simulate    bool              `yaml:"simulate"`
+	Devices     DevicesConfig     `yaml:"devices"`
+	Topology    TopologyConfig    `yaml:"topology"`
+	Polling     PollingConfig     `yaml:"polling"`
+	Engine      EngineConfig      `yaml:"engine"`
+	Storage     StorageConfig     `yaml:"storage"`
+	Sync        SyncConfig        `yaml:"sync"`
+	UI          UIConfig          `yaml:"ui"`
+	Controllers ControllersConfig `yaml:"controllers"`
+	Simulator   SimulatorConfig   `yaml:"simulator"`
+}
+
+// --- Controller Configs (tunable via YAML + env vars) ---
+
+type ControllersConfig struct {
+	LimitDischarge LimitDischargeConfig `yaml:"limit_discharge"`
+	SellToGrid     SellToGridConfig     `yaml:"sell_to_grid_limit"`
+	PeakShaving    PeakShavingConfig    `yaml:"peak_shaving"`
+	TimeOfUse      TimeOfUseConfig      `yaml:"time_of_use"`
+	EVCharging     EVChargingConfig     `yaml:"ev_charging"`
+	Balancing      BalancingConfig       `yaml:"balancing"`
+}
+
+type LimitDischargeConfig struct {
+	Enabled        bool    `yaml:"enabled"`
+	MinSOC         float64 `yaml:"min_soc"`
+	ForceChargeSOC float64 `yaml:"force_charge_soc"`
+	ForceChargeW   int     `yaml:"force_charge_w"`
+}
+
+type SellToGridConfig struct {
+	Enabled            bool `yaml:"enabled"`
+	MaxSellToGridPower int  `yaml:"max_sell_to_grid_w"`
+}
+
+type PeakShavingConfig struct {
+	Enabled        bool `yaml:"enabled"`
+	PeakThresholdW int  `yaml:"peak_threshold_w"`
+}
+
+type TOUPeriodConfig struct {
+	StartHour int    `yaml:"start_hour"`
+	EndHour   int    `yaml:"end_hour"`
+	Rate      string `yaml:"rate"` // "off_peak", "on_peak", "mid_peak"
+}
+
+type TimeOfUseConfig struct {
+	Enabled           bool              `yaml:"enabled"`
+	MaxChargeW        int               `yaml:"max_charge_w"`
+	MaxDischargeW     int               `yaml:"max_discharge_w"`
+	MinSOCToDischarge float64           `yaml:"min_soc_to_discharge"`
+	Periods           []TOUPeriodConfig `yaml:"periods"`
+}
+
+type EVChargingConfig struct {
+	Enabled       bool `yaml:"enabled"`
+	MaxSitePowerW int  `yaml:"max_site_power_w"`
+}
+
+type BalancingConfig struct {
+	Enabled bool `yaml:"enabled"`
+}
+
+// --- Simulator Config (tunable via YAML + env vars) ---
+
+type SimulatorConfig struct {
+	InitialSOC        float64 `yaml:"initial_soc"`
+	SolarPeakW        int     `yaml:"solar_peak_w"`
+	LoadBaseW         int     `yaml:"load_base_w"`
+	LoadVarianceW     int     `yaml:"load_variance_w"`
+	BatteryCapacityWh int     `yaml:"battery_capacity_wh"`
+	MaxChargeRateW    int     `yaml:"max_charge_rate_w"`
+	MaxDischargeRateW int     `yaml:"max_discharge_rate_w"`
 }
 
 type DevicesConfig struct {
@@ -139,6 +208,7 @@ func (c *Config) SlowInterval() time.Duration {
 }
 
 // Load reads a YAML config file and returns a Config.
+// Priority (highest wins): ENV vars > .env file > YAML values > defaults.
 func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -151,6 +221,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.applyDefaults()
+	cfg.applyEnvOverrides()
 
 	if err := cfg.validate(); err != nil {
 		return nil, fmt.Errorf("config: validate: %w", err)
@@ -186,6 +257,94 @@ func (c *Config) applyDefaults() {
 		if c.Devices.EVCharger[i].Protocol == "" {
 			c.Devices.EVCharger[i].Protocol = "modbus"
 		}
+	}
+
+	// --- Controller defaults (only fill if YAML didn't set them) ---
+	ld := &c.Controllers.LimitDischarge
+	if ld.MinSOC == 0 {
+		ld.MinSOC = 15.0
+	}
+	if ld.ForceChargeSOC == 0 {
+		ld.ForceChargeSOC = 10.0
+	}
+	if ld.ForceChargeW == 0 {
+		ld.ForceChargeW = 2000
+	}
+	if !ld.Enabled {
+		ld.Enabled = true // safety controller defaults to enabled
+	}
+
+	stg := &c.Controllers.SellToGrid
+	if !stg.Enabled {
+		stg.Enabled = true // grid compliance defaults to enabled
+	}
+	// MaxSellToGridPower=0 is valid (zero-export), so no zero-check
+
+	ps := &c.Controllers.PeakShaving
+	if ps.PeakThresholdW == 0 {
+		ps.PeakThresholdW = 50000
+	}
+	if !ps.Enabled {
+		ps.Enabled = true
+	}
+
+	tou := &c.Controllers.TimeOfUse
+	if tou.MaxChargeW == 0 {
+		tou.MaxChargeW = 3000
+	}
+	if tou.MaxDischargeW == 0 {
+		tou.MaxDischargeW = 5000
+	}
+	if tou.MinSOCToDischarge == 0 {
+		tou.MinSOCToDischarge = 20.0
+	}
+	if !tou.Enabled {
+		tou.Enabled = true
+	}
+	if len(tou.Periods) == 0 {
+		tou.Periods = []TOUPeriodConfig{
+			{StartHour: 22, EndHour: 6, Rate: "off_peak"},
+			{StartHour: 9, EndHour: 12, Rate: "on_peak"},
+			{StartHour: 17, EndHour: 21, Rate: "on_peak"},
+		}
+	}
+
+	ev := &c.Controllers.EVCharging
+	if ev.MaxSitePowerW == 0 {
+		ev.MaxSitePowerW = 50000
+	}
+	// EVCharging.Enabled defaults to false — opt-in based on whether EV chargers exist
+	if len(c.Devices.EVCharger) > 0 && !ev.Enabled {
+		ev.Enabled = true
+	}
+
+	bal := &c.Controllers.Balancing
+	if !bal.Enabled {
+		bal.Enabled = true
+	}
+
+	// --- Simulator defaults ---
+	sim := &c.Simulator
+	if sim.InitialSOC == 0 {
+		sim.InitialSOC = 50.0
+	}
+	if sim.SolarPeakW == 0 {
+		sim.SolarPeakW = 10000
+	}
+	if sim.LoadBaseW == 0 {
+		sim.LoadBaseW = 5000
+	}
+	if sim.LoadVarianceW == 0 {
+		sim.LoadVarianceW = 3000
+	}
+	if sim.BatteryCapacityWh == 0 {
+		sim.BatteryCapacityWh = 5000000
+	}
+	if sim.MaxChargeRateW == 0 {
+		sim.MaxChargeRateW = 50000
+	}
+	if sim.MaxDischargeRateW == 0 {
+		sim.MaxDischargeRateW = 50000
 	}
 }
 
@@ -272,7 +431,7 @@ func (c *Config) validate() error {
 
 // DefaultDev returns a dev config with simulated devices.
 func DefaultDev() *Config {
-	return &Config{
+	cfg := &Config{
 		Site: SiteConfig{
 			ID:   "dev-site",
 			Name: "Development Site",
@@ -341,5 +500,121 @@ func DefaultDev() *Config {
 			Password: "ems@2025",
 		},
 		Simulate: true,
+	}
+	cfg.applyDefaults()
+	cfg.applyEnvOverrides()
+	return cfg
+}
+
+// --- .env file loader & environment variable overrides ---
+
+// loadDotEnv reads a .env file and sets environment variables.
+// Does NOT override variables that are already set in the environment.
+// Looks for EMS_ENV_FILE env var first, then falls back to ".env" in cwd.
+func loadDotEnv() {
+	path := os.Getenv("EMS_ENV_FILE")
+	if path == "" {
+		path = ".env"
+	}
+
+	f, err := os.Open(path)
+	if err != nil {
+		return // .env is optional — no error if missing
+	}
+	defer f.Close()
+
+	log.Printf("config: loading env from %s", path)
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		key, value, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		key = strings.TrimSpace(key)
+		value = strings.TrimSpace(value)
+		// Strip surrounding quotes
+		value = strings.Trim(value, "\"'")
+		// Don't override existing env vars
+		if os.Getenv(key) == "" {
+			os.Setenv(key, value)
+		}
+	}
+}
+
+// applyEnvOverrides reads EMS_* environment variables and overrides config values.
+// Called after applyDefaults, so env vars always win over YAML and defaults.
+func (c *Config) applyEnvOverrides() {
+	loadDotEnv()
+
+	// --- Core ---
+	envBool("EMS_SIMULATE", &c.Simulate)
+	envInt("EMS_UI_PORT", &c.UI.Port)
+	envStr("EMS_UI_USERNAME", &c.UI.Username)
+	envStr("EMS_UI_PASSWORD", &c.UI.Password)
+	envStr("EMS_DB_DSN", &c.Storage.DSN)
+	envInt("EMS_RETENTION_DAYS", &c.Storage.RetentionDays)
+
+	// --- Controllers ---
+	envFloat("EMS_MIN_SOC", &c.Controllers.LimitDischarge.MinSOC)
+	envFloat("EMS_FORCE_CHARGE_SOC", &c.Controllers.LimitDischarge.ForceChargeSOC)
+	envInt("EMS_FORCE_CHARGE_W", &c.Controllers.LimitDischarge.ForceChargeW)
+	envInt("EMS_MAX_SELL_TO_GRID_W", &c.Controllers.SellToGrid.MaxSellToGridPower)
+	envInt("EMS_PEAK_THRESHOLD_W", &c.Controllers.PeakShaving.PeakThresholdW)
+	envBool("EMS_PEAK_SHAVING_ENABLED", &c.Controllers.PeakShaving.Enabled)
+	envInt("EMS_TOU_MAX_CHARGE_W", &c.Controllers.TimeOfUse.MaxChargeW)
+	envInt("EMS_TOU_MAX_DISCHARGE_W", &c.Controllers.TimeOfUse.MaxDischargeW)
+	envFloat("EMS_TOU_MIN_SOC", &c.Controllers.TimeOfUse.MinSOCToDischarge)
+	envBool("EMS_TOU_ENABLED", &c.Controllers.TimeOfUse.Enabled)
+	envInt("EMS_EV_MAX_SITE_POWER_W", &c.Controllers.EVCharging.MaxSitePowerW)
+	envBool("EMS_EV_ENABLED", &c.Controllers.EVCharging.Enabled)
+	envBool("EMS_BALANCING_ENABLED", &c.Controllers.Balancing.Enabled)
+
+	// --- Simulator ---
+	envFloat("EMS_SIM_INITIAL_SOC", &c.Simulator.InitialSOC)
+	envInt("EMS_SIM_SOLAR_PEAK_W", &c.Simulator.SolarPeakW)
+	envInt("EMS_SIM_LOAD_BASE_W", &c.Simulator.LoadBaseW)
+	envInt("EMS_SIM_LOAD_VARIANCE_W", &c.Simulator.LoadVarianceW)
+	envInt("EMS_SIM_BATTERY_CAPACITY_WH", &c.Simulator.BatteryCapacityWh)
+	envInt("EMS_SIM_MAX_CHARGE_W", &c.Simulator.MaxChargeRateW)
+	envInt("EMS_SIM_MAX_DISCHARGE_W", &c.Simulator.MaxDischargeRateW)
+}
+
+// --- env var helpers (stdlib only, no dependencies) ---
+
+func envStr(key string, dst *string) {
+	if v := os.Getenv(key); v != "" {
+		*dst = v
+	}
+}
+
+func envInt(key string, dst *int) {
+	if v := os.Getenv(key); v != "" {
+		if n, err := strconv.Atoi(v); err == nil {
+			*dst = n
+		}
+	}
+}
+
+func envFloat(key string, dst *float64) {
+	if v := os.Getenv(key); v != "" {
+		if f, err := strconv.ParseFloat(v, 64); err == nil {
+			*dst = f
+		}
+	}
+}
+
+func envBool(key string, dst *bool) {
+	if v := os.Getenv(key); v != "" {
+		switch strings.ToLower(v) {
+		case "true", "1", "yes":
+			*dst = true
+		case "false", "0", "no":
+			*dst = false
+		}
 	}
 }

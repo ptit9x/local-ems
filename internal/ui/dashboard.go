@@ -460,7 +460,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <div class="config-row"><span class="key" data-i18n="language">Language</span><span class="val">
         <select id="langSelect" onchange="setLang(this.value)" style="background:var(--select-bg);color:var(--select-text);border:1px solid var(--border);border-radius:6px;padding:4px 12px;font-size:13px;cursor:pointer;outline:none;">
           <option value="en">🇬🇧 English</option>
-          <option value="vi">🇻🇳 Tiếng Việt</option>
+          <option value="vi">🇻🇳 Vietnamese</option>
         </select>
       </span></div>
       <div class="config-row"><span class="key" data-i18n="theme">Theme</span><span class="val">
@@ -536,28 +536,28 @@ const i18n = {
   },
   vi: {
     // Nav
-    live: 'Trực tiếp', history: 'Lịch sử', config: 'Cấu hình', health: 'Sức khỏe HT', about: 'Thông tin', user: 'Người dùng',
-    nav_system: 'Hệ thống', nav_account: 'Tài khoản',
+    live: 'Live', history: 'History', config: 'Config', health: 'System Health', about: 'About', user: 'User',
+    nav_system: 'System', nav_account: 'Account',
     // Page titles
-    live_title: '📊 Bảng điều khiển', history_title: '📈 Lịch sử', config_title: '⚙️ Cấu hình hệ thống',
-    health_title: '💚 Sức khỏe hệ thống', about_title: 'ℹ️ Thông tin', user_title: '👤 Người dùng',
+    live_title: '📊 Dashboard', history_title: '📈 History', config_title: '⚙️ System Configuration',
+    health_title: '💚 System Health', about_title: 'ℹ️ About', user_title: '👤 User',
     // Widgets
-    grid: 'Lưới điện', production: 'Sản xuất', storage: 'Lưu trữ', consumption: 'Tiêu thụ',
-    ev_chargers: 'Trạm sạc EV', devices: 'Thiết bị', self_consumption: 'Tự tiêu thụ', autarchy: 'Tự chủ NL',
+    grid: 'Grid', production: 'Production', storage: 'Storage', consumption: 'Consumption',
+    ev_chargers: 'EV Chargers', devices: 'Devices', self_consumption: 'Self-Consumption', autarchy: 'Autarchy',
     // Config
-    controllers: 'Bộ điều khiển (Ưu tiên)', battery_ess: 'Pin ESS', devices_modbus: 'Thiết bị (Modbus TCP)',
-    cycle: 'Chu kỳ', general_settings: 'Cài đặt chung', language: 'Ngôn ngữ', theme: 'Giao diện',
-    session_timeout: 'Hết phiên', timezone: 'Múi giờ',
+    controllers: 'Controllers (Priority Order)', battery_ess: 'Battery ESS', devices_modbus: 'Devices (Modbus TCP)',
+    cycle: 'Cycle', general_settings: 'General Settings', language: 'Language', theme: 'Theme',
+    session_timeout: 'Session Timeout', timezone: 'Timezone',
     // User
-    user_info: 'Thông tin người dùng', username: 'Tên đăng nhập', role: 'Vai trò', last_login: 'Đăng nhập cuối',
-    contact: 'Thông tin liên hệ', company: 'Công ty', email: 'Email', phone: 'Điện thoại', address: 'Địa chỉ',
-    sign_out: 'Đăng xuất',
+    user_info: 'User Information', username: 'Username', role: 'Role', last_login: 'Last Login',
+    contact: 'Contact Details', company: 'Company', email: 'Email', phone: 'Phone', address: 'Address',
+    sign_out: 'Sign Out',
     // About
-    version: 'Phiên bản', architecture: 'Kiến trúc', runtime: 'Nền tảng', storage_label: 'Lưu trữ', protocol: 'Giao thức',
+    version: 'Version', architecture: 'Architecture', runtime: 'Runtime', storage_label: 'Storage', protocol: 'Protocol',
     // Misc
-    capacity: 'Dung lượng', max_charge: 'Sạc tối đa', max_discharge: 'Xả tối đa',
-    min_soc: 'SOC tối thiểu', force_charge_soc: 'SOC ép sạc', interval: 'Chu kỳ',
-    resolver: 'Bộ xử lý', scheduler: 'Bộ lập lịch',
+    capacity: 'Capacity', max_charge: 'Max Charge Rate', max_discharge: 'Max Discharge Rate',
+    min_soc: 'Min SOC', force_charge_soc: 'Force Charge SOC', interval: 'Cycle',
+    resolver: 'Resolver', scheduler: 'Scheduler',
   }
 };
 

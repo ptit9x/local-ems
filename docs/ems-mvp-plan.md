@@ -1,9 +1,9 @@
-# Bản thiết kế hệ thống Local EMS (Energy Management System)
+# Local EMS (Energy Management System) System Design
 
 ## Goal
-Xây dựng hệ thống Local EMS bằng Go (Golang) cho BESS 5MWh. Hệ thống hỗ trợ giả lập 100% phần cứng (Simulator), giao tiếp Modbus/OCPP, hoạt động độc lập không cần mạng (Store-and-Forward + Local UI), và tích hợp các thuật toán điều khiển năng lượng chuyên sâu theo kiến trúc OpenEMS.
+Build a Local EMS system in Go (Golang) for a 5MWh BESS. The system supports 100% hardware simulation (Simulator), Modbus/OCPP communication, independent offline operation without network connectivity (Store-and-Forward + Local UI), and integrated advanced energy control algorithms following the OpenEMS architecture.
 
-## Kiến trúc phần mềm (Clean Architecture + Constraint-based Controller Chain)
+## Software Architecture (Clean Architecture + Constraint-based Controller Chain)
 
 ### 1. File Structure
 ```text
@@ -11,124 +11,124 @@ Xây dựng hệ thống Local EMS bằng Go (Golang) cho BESS 5MWh. Hệ thốn
   /ems-core             # Main process (entrypoint)
 /internal
   /config               # YAML/SQLite Config loader
-  /simulator            # GIẢ LẬP: Khởi tạo Fake Modbus Servers (Meters, BMS, PCS)
-  /modbus               # Modbus Client (TCP/RTU) kết nối phần cứng
-  /devices              # Adapter phần cứng (Meter, BMS, PCS)
-  /ocpp                 # Xử lý Websockets cho EV Chargers
-  /channel              # Channel system: safe concurrent read/write với Process Image snapshot mỗi cycle
-  /engine               # BỘ NÃO QUYẾT ĐỊNH
-     /cycle             # Cycle Manager: vòng lặp chính 1s (đọc → xử lý → ghi)
-     /scheduler         # Scheduler: quyết định thứ tự chạy controllers (FixedOrder)
-     /resolver          # ESS Power Resolver: tổng hợp constraints → setpoint cuối cùng ghi xuống PCS
+  /simulator            # SIMULATOR: Initialize Fake Modbus Servers (Meters, BMS, PCS)
+  /modbus               # Modbus Client (TCP/RTU) connecting to hardware
+  /devices              # Hardware adapters (Meter, BMS, PCS)
+  /ocpp                 # WebSocket handling for EV Chargers
+  /channel              # Channel system: safe concurrent read/write with Process Image snapshot each cycle
+  /engine               # DECISION ENGINE
+     /cycle             # Cycle Manager: 1s main loop (read → process → write)
+     /scheduler         # Scheduler: determines controller execution order (FixedOrder)
+     /resolver          # ESS Power Resolver: aggregates constraints → final setpoint written to PCS
      /controllers
-        /limit_discharge      # Chống xả kiệt pin (configurable: minSoc, forceChargeSoc)
-        /sell_to_grid_limit   # Giới hạn đẩy điện ngược lên lưới (configurable: maxSellToGridPower)
-        /peak_shaving         # Cạo đỉnh tải (Bù pin khi tải văn phòng quá cao)
-        /time_of_use          # Sạc đêm giá rẻ, xả ngày giá đắt
-        /balancing            # Cân bằng tự tiêu thụ (Self-consumption)
-  /health               # Watchdog & health check cho process
-  /sync                 # Lưu InfluxDB nội bộ & Đồng bộ MQTT khi có mạng
-  /ui                   # Local HMI (REST API / Websockets)
-/web                    # Mã nguồn Frontend HMI
+        /limit_discharge      # Prevent deep battery discharge (configurable: minSoc, forceChargeSoc)
+        /sell_to_grid_limit   # Limit feed-in power to grid (configurable: maxSellToGridPower)
+        /peak_shaving         # Peak load shaving (battery compensation when office load is high)
+        /time_of_use          # Charge at off-peak rates, discharge at on-peak rates
+        /balancing            # Self-consumption balancing
+  /health               # Watchdog & health check for the process
+  /sync                 # Local InfluxDB storage & MQTT sync when online
+  /ui                   # Local HMI (REST API / WebSockets)
+/web                    # Frontend HMI source code
 /test
-  /integration          # Integration tests cho Controller Chain
+  /integration          # Integration tests for Controller Chain
   /simulation           # Replay data → verify output
 ```
 
-### 2. Mô hình thuật toán (Kế thừa từ OpenEMS — Constraint Accumulation)
+### 2. Algorithmic Model (Inherited from OpenEMS — Constraint Accumulation)
 
-Thay vì một hàm "If-else" khổng lồ hay kiểu "override tuyệt đối", chúng ta sử dụng kiến trúc **Constraint-based Controller Chain** giống OpenEMS:
+Instead of a giant "if-else" function or an "absolute override" pattern, we use a **Constraint-based Controller Chain** architecture similar to OpenEMS:
 
-**Nguyên lý hoạt động:**
-1. **Scheduler** quyết định thứ tự chạy controllers (priority cao → chạy trước).
-2. **Mỗi controller đều được chạy**, và đặt **constraint** lên ESS (ví dụ: `MaxDischargePower ≤ 0`, `MaxChargePower ≤ 2000W`).
-3. Controller có priority cao đặt constraint trước — constraint của nó sẽ **chặt hơn** và được ưu tiên giữ lại.
-4. Sau khi tất cả controllers chạy xong, **ESS Power Resolver** tổng hợp toàn bộ constraints để tìm ra setpoint khả thi cuối cùng ghi xuống PCS.
+**Operating Principle:**
+1. **Scheduler** determines the controller execution order (higher priority → runs first).
+2. **Every controller runs**, and places **constraints** on the ESS (e.g., `MaxDischargePower ≤ 0`, `MaxChargePower ≤ 2000W`).
+3. Higher priority controllers place constraints first — their constraints will be **tighter** and prioritized for retention.
+4. After all controllers have finished executing, the **ESS Power Resolver** aggregates all constraints to determine the final feasible setpoint to write to the PCS.
 
 ```go
-// Mỗi controller thêm constraints, KHÔNG override trực tiếp
+// Each controller adds constraints, does NOT override directly
 type Constraint struct {
-    MaxDischargePower *int   // Giới hạn công suất xả (W), nil = không giới hạn
-    MaxChargePower    *int   // Giới hạn công suất sạc (W), nil = không giới hạn
-    ForcePower        *int   // Ép buộc setpoint (chỉ dùng cho trường hợp force charge)
-    Source            string // Tên controller tạo constraint
+    MaxDischargePower *int   // Discharge power limit (W), nil = unlimited
+    MaxChargePower    *int   // Charge power limit (W), nil = unlimited
+    ForcePower        *int   // Forced setpoint (used only for force charge scenarios)
+    Source            string // Name of the controller creating the constraint
 }
 
-// Resolver chọn giá trị MIN của tất cả MaxDischarge, MIN của tất cả MaxCharge
-// → đảm bảo constraint chặt nhất luôn thắng
+// Resolver selects the MIN value of all MaxDischarge, MIN of all MaxCharge
+// → ensures the tightest constraint always wins
 ```
 
-**Thứ tự chạy Controllers (Scheduler FixedOrder):**
-*   **Priority 1 (Bảo vệ phần cứng):** `limit_discharge`. SOC < `minSoc` (default: 15%) → constraint `MaxDischargePower = 0`. SOC < `forceChargeSoc` (default: 10%) → constraint `ForcePower = chargeRate`. Các controllers sau vẫn chạy nhưng constraints sẽ bị resolver ghi đè bởi constraint chặt hơn.
-*   **Priority 2 (Tuân thủ điện lực):** `sell_to_grid_limit`. Nếu Grid Meter báo công suất sell-to-grid vượt `maxSellToGridPower` (default: 0W cho zero-export) → constraint tăng charge hoặc giảm discharge tương ứng.
-*   **Priority 3 (Tối ưu chi phí):** `peak_shaving` — constraint xả pin khi tải vượt ngưỡng cắt đỉnh. `time_of_use` — constraint sạc trong khung giờ giá rẻ, xả trong khung giờ giá đắt.
-*   **Priority 4 (Mặc định):** `balancing`. Đảm bảo điện mặt trời ưu tiên sạc pin, thiếu thì dùng lưới.
+**Controller Execution Order (Scheduler FixedOrder):**
+*   **Priority 1 (Hardware Protection):** `limit_discharge`. SOC < `minSoc` (default: 15%) → constraint `MaxDischargePower = 0`. SOC < `forceChargeSoc` (default: 10%) → constraint `ForcePower = chargeRate`. Subsequent controllers still run, but their constraints will be superseded by the tighter constraint in the resolver.
+*   **Priority 2 (Grid Compliance):** `sell_to_grid_limit`. If the Grid Meter reports sell-to-grid power exceeding `maxSellToGridPower` (default: 0W for zero-export) → constraint increases charge or decreases discharge accordingly.
+*   **Priority 3 (Cost Optimization):** `peak_shaving` — constraint discharges battery when load exceeds the peak clipping threshold. `time_of_use` — constraint charges during off-peak rate hours, discharges during on-peak rate hours.
+*   **Priority 4 (Default):** `balancing`. Ensures solar power prioritizes charging the battery, falling back to the grid when insufficient.
 
-### 3. Vòng lặp Cycle (Cycle Manager)
+### 3. Execution Cycle (Cycle Manager)
 
-Mỗi cycle (~1 giây), Cycle Manager thực hiện tuần tự:
+Each cycle (~1 second), Cycle Manager executes sequentially:
 ```text
 ┌─────────────────────────────────────────────────┐
 │ 1. BEFORE_PROCESS_IMAGE                         │
-│    → Snapshot tất cả channel values             │
+│    → Snapshot all channel values                │
 │                                                 │
 │ 2. AFTER_PROCESS_IMAGE                          │
-│    → Tính toán Sum (tổng công suất, SOC...)     │
+│    → Calculate Sum (total power, SOC...)        │
 │                                                 │
 │ 3. BEFORE_CONTROLLERS                           │
 │    → Reset constraint list                      │
 │                                                 │
 │ 4. EXECUTE_CONTROLLERS                          │
-│    → Scheduler gọi từng controller theo thứ tự  │
-│    → Mỗi controller đọc process image, thêm    │
-│      constraints vào resolver                   │
+│    → Scheduler calls each controller in order   │
+│    → Each controller reads process image, adds  │
+│      constraints to resolver                    │
 │                                                 │
 │ 5. AFTER_CONTROLLERS                            │
-│    → Resolver tổng hợp constraints → setpoint   │
+│    → Resolver aggregates constraints → setpoint │
 │                                                 │
 │ 6. EXECUTE_WRITE                                │
-│    → Ghi setpoint xuống PCS qua Modbus          │
+│    → Write setpoint to PCS via Modbus           │
 │                                                 │
 │ 7. AFTER_WRITE                                  │
-│    → Log, ghi InfluxDB, emit events             │
+│    → Log, write to InfluxDB, emit events        │
 └─────────────────────────────────────────────────┘
 ```
 
-## Tasks Roadmap (Các Giai Đoạn Phát Triển)
+## Tasks Roadmap (Development Phases)
 
-### Phase 0: Spike — Validate kiến trúc Constraint Resolver (1-2 ngày)
-- [x] Task 0.1: PoC nhỏ gồm 2 fake controllers + constraint resolver. Chạy trên hardcoded data, verify constraint chặt nhất luôn thắng.
-- [x] Task 0.2: Viết unit test cho resolver: nhiều constraints chồng chéo → output đúng.
+### Phase 0: Spike — Validate Constraint Resolver Architecture (1-2 days)
+- [x] Task 0.1: Small PoC consisting of 2 fake controllers + constraint resolver. Run on hardcoded data, verify the tightest constraint always wins.
+- [x] Task 0.2: Write unit tests for resolver: multiple overlapping constraints → correct output.
 
-### Phase 1: Nền tảng & Giả lập (Simulator)
-- [x] Task 1.1: Khởi tạo project Go, setup cấu trúc thư mục, `go.mod`.
-- [ ] Task 1.2: Viết module `/internal/channel` — Channel system với Process Image (snapshot safe cho concurrent read).
-- [x] Task 1.3: Viết module `/internal/simulator` tạo Fake Modbus Server cho Meter, BMS, PCS.
-- [x] Task 1.4: Dựng script sinh dữ liệu giả lập: Hình sin cho Điện mặt trời, Random cho Tải văn phòng, SOC ramp cho BMS.
-- [x] Task 1.5: Viết unit tests cho simulator (data ranges hợp lệ, Modbus registers đúng format).
+### Phase 1: Foundation & Simulation (Simulator)
+- [x] Task 1.1: Initialize Go project, setup directory structure, `go.mod`.
+- [ ] Task 1.2: Write `/internal/channel` module — Channel system with Process Image (thread-safe snapshot for concurrent read).
+- [x] Task 1.3: Write `/internal/simulator` module to create Fake Modbus Servers for Meter, BMS, PCS.
+- [x] Task 1.4: Build simulation data generator script: Sinusoidal for Solar PV, Random for Office Load, SOC ramp for BMS.
+- [x] Task 1.5: Write unit tests for simulator (valid data ranges, Modbus registers in correct format).
 
-### Phase 2: Kết nối thiết bị & Giao tiếp cốt lõi
-- [x] Task 2.1: Viết Modbus Client đọc thông số từ Fake Meter (Lưới & Mặt trời).
-- [x] Task 2.2: Viết Adapter đọc trạng thái Fake BMS (SOC, Nhiệt độ, Cell voltage limits).
-- [x] Task 2.3: Viết Adapter ghi lệnh sạc/xả xuống Fake PCS (Active/Reactive Power setpoint).
-- [x] Task 2.4: Viết unit tests cho mỗi adapter (mock Modbus server → verify parsed values).
+### Phase 2: Device Connectivity & Core Communication
+- [x] Task 2.1: Write Modbus Client reading parameters from Fake Meter (Grid & Solar).
+- [x] Task 2.2: Write Adapter reading Fake BMS status (SOC, Temperature, Cell voltage limits).
+- [x] Task 2.3: Write Adapter writing charge/discharge commands to Fake PCS (Active/Reactive Power setpoint).
+- [x] Task 2.4: Write unit tests for each adapter (mock Modbus server → verify parsed values).
 
-### Phase 3: Thuật toán Điều khiển (Decision Engine)
-- [x] Task 3.1: Code `Controller` interface + `Constraint` struct. Viết Cycle Manager (vòng lặp 1s).
-- [x] Task 3.2: Code `Scheduler` (FixedOrder) — nhận danh sách controller IDs, gọi theo thứ tự.
-- [x] Task 3.3: Code `ESS Power Resolver` — nhận []Constraint → tính setpoint cuối cùng.
-- [x] Task 3.4: Implement `limit_discharge` (configurable `minSoc`, `forceChargeSoc`). + unit tests.
-- [x] Task 3.5: Implement `sell_to_grid_limit` (configurable `maxSellToGridPower`, default 0). + unit tests.
-- [x] Task 3.6: Implement `peak_shaving` (configurable `peakThreshold`). + unit tests.
-- [x] Task 3.7: Implement `time_of_use` (configurable schedule giá điện theo giờ). + unit tests.
-- [x] Task 3.8: Implement `balancing` (self-consumption optimization). + unit tests.
-- [x] Task 3.9: Integration test: lắp ráp tất cả controllers → Scheduler → Resolver → chạy trên simulator data.
+### Phase 3: Control Algorithms (Decision Engine)
+- [x] Task 3.1: Code `Controller` interface + `Constraint` struct. Write Cycle Manager (1s loop).
+- [x] Task 3.2: Code `Scheduler` (FixedOrder) — accepts list of controller IDs, calls in sequence.
+- [x] Task 3.3: Code `ESS Power Resolver` — receives []Constraint → calculates final setpoint.
+- [x] Task 3.4: Implement `limit_discharge` (configurable `minSoc`, `forceChargeSoc`) + unit tests.
+- [x] Task 3.5: Implement `sell_to_grid_limit` (configurable `maxSellToGridPower`, default 0) + unit tests.
+- [x] Task 3.6: Implement `peak_shaving` (configurable `peakThreshold`) + unit tests.
+- [x] Task 3.7: Implement `time_of_use` (configurable hourly electricity tariff schedule) + unit tests.
+- [x] Task 3.8: Implement `balancing` (self-consumption optimization) + unit tests.
+- [x] Task 3.9: Integration test: assemble all controllers → Scheduler → Resolver → run on simulator data.
 
 ### Phase 4: Local UI & Offline Sync
-- [x] Task 4.1: Nhúng SQLite, thiết lập dịch vụ ghi đệm (Buffer). *(InfluxDB → SQLite cho MVP)*
-- [ ] Task 4.2: Code `sync` module đẩy MQTT khi Online (Store-and-Forward). *(deferred to post-MVP)*
-- [x] Task 4.3: Dựng REST API + Websocket cho Local Web UI (Hiển thị luồng điện thời gian thực).
-- [x] Task 4.4: Code `/internal/health` — watchdog heartbeat, restart policy khi controller panic.
+- [x] Task 4.1: Embed SQLite, establish buffer service. *(InfluxDB → SQLite for MVP)*
+- [ ] Task 4.2: Code `sync` module to publish MQTT when online (Store-and-Forward). *(deferred to post-MVP)*
+- [x] Task 4.3: Build REST API + WebSocket for Local Web UI (Display real-time power flow).
+- [x] Task 4.4: Code `/internal/health` — watchdog heartbeat, restart policy when a controller panics.
 
 ### Phase 5: EV Charger & Multi-device (Q&A Update)
 - [x] Task 5.1: Device Plugin Architecture — `Device`, `ControllableDevice` interfaces, `DeviceRegistry`
@@ -157,16 +157,15 @@ Mỗi cycle (~1 giây), Cycle Manager thực hiện tuần tự:
 - [ ] Task 8.2: Per-device health monitoring
 
 ## Done When
-- [x] `go run ./cmd/ems-core --simulate` khởi chạy thành công, simulator tạo dữ liệu sin/random liên tục.
-- [x] **Zero-export:** Grid Meter fake = -500W (sell) → sell_to_grid_limit constraint kích hoạt → PCS tăng charge → grid power ≥ 0W trong ≤ 3 cycles.
-- [x] **Chống kiệt pin:** SOC giảm đến 15% → discharge constraint = 0. SOC giảm đến 10% → force charge bật.
-- [x] **Peak shaving:** Tải vượt peak threshold → PCS discharge bù, tải nhìn từ grid giảm dưới threshold.
-- [x] **Time-of-use:** Trong khung giờ giá rẻ → tự động charge. Trong khung giờ giá đắt → tự động discharge.
-- [x] **Constraint conflict:** Khi peak_shaving muốn discharge nhưng SOC < minSoc → limit_discharge constraint thắng, discharge = 0.
-- [x] SQLite local ghi data liên tục mỗi cycle. *(MQTT sync deferred to post-MVP)*
-- [x] Tất cả unit tests pass. Integration test coverage > 80%.
+- [x] `go run ./cmd/ems-core --simulate` starts successfully, simulator continuously generates sinusoidal/random data.
+- [x] **Zero-export:** Fake Grid Meter = -500W (sell) → sell_to_grid_limit constraint activates → PCS increases charge → grid power ≥ 0W within ≤ 3 cycles.
+- [x] **Prevent battery depletion:** SOC decreases to 15% → discharge constraint = 0. SOC decreases to 10% → force charge activates.
+- [x] **Peak shaving:** Load exceeds peak threshold → PCS discharges to compensate, load seen from grid drops below threshold.
+- [x] **Time-of-use:** During off-peak rate hours → automatically charge. During on-peak rate hours → automatically discharge.
+- [x] **Constraint conflict:** When peak_shaving requests discharge but SOC < minSoc → limit_discharge constraint wins, discharge = 0.
+- [x] Local SQLite writes data continuously every cycle. *(MQTT sync deferred to post-MVP)*
+- [x] All unit tests pass. Integration test coverage > 80%.
 - [x] EV Charger visible on dashboard with real-time status updates
 - [x] Constraint-based EV DLM controller in scheduler
 - [ ] Cloud sync via MQTT every 5 minutes
 - [ ] Multi-rate hardware polling (200ms fast meter)
-

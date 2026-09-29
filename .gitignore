@@ -1,5 +1,5 @@
 # Binaries
-ems-core
+/ems-core
 *.exe
 *.dll
 *.so
@@ -37,3 +37,6 @@ myems/
 
 # Gemini AI
 .gemini/
+
+# Environment (keep .env.* templates, ignore active .env)
+.env

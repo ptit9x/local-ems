@@ -91,7 +91,7 @@ Built-in register profiles for different PCS brands. Plug-in architecture — ad
 - Per-device status and drill-down
 - EV Charger monitoring with per-station breakdown
 - System health monitoring
-- **Multi-language** (English 🇬🇧 / Tiếng Việt 🇻🇳)
+- **Multi-language** (English 🇬🇧 / Vietnamese 🇻🇳)
 - Dark / Light / System theme
 
 <p align="center">
@@ -311,6 +311,7 @@ registry.Register(devices.PCSProfile{
 
 - [EMS MVP Plan](docs/ems-mvp-plan.md) — Detailed design, algorithm, and task roadmap
 - [Cloud ERP Plan](docs/cloud-erp-plan.md) — Cloud-side fleet management (Phase 2)
+- [Deployment Guide](docs/deployment-guide.md) — Smart Home & Factory deployment with `.env` configuration
 
 ## Contributing
 

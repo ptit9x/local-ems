@@ -128,31 +128,112 @@ docker-windows:
 		go build -ldflags "$(LDFLAGS)" -o $(DIST_DIR)/$(APP_NAME)-windows-amd64.exe $(MAIN_PKG)
 	@echo "✅ $(DIST_DIR)/$(APP_NAME)-windows-amd64.exe"
 
-# ---- Package: binary + config + .env template → zip ----
+# ---- Release: ready-to-deploy installer packages ----
 
-.PHONY: package-smart-home
-package-smart-home: build
-	@echo "▶ Packaging Smart Home bundle..."
+# Helper: create a bundle dir with common files
+define bundle
+	@mkdir -p $(DIST_DIR)/$(1)/data
+	@cp scripts/install.sh scripts/uninstall.sh $(DIST_DIR)/$(1)/ 2>/dev/null || true
+	@cp scripts/install.bat scripts/uninstall.bat $(DIST_DIR)/$(1)/ 2>/dev/null || true
+	@chmod +x $(DIST_DIR)/$(1)/install.sh $(DIST_DIR)/$(1)/uninstall.sh 2>/dev/null || true
+endef
+
+.PHONY: release
+release: release-smart-home release-factory
+	@echo ""
+	@echo "════════════════════════════════════════════════"
+	@echo "  ✅ All release packages ready in $(DIST_DIR)/"
+	@echo "════════════════════════════════════════════════"
+	@ls -lh $(DIST_DIR)/*.zip
+
+.PHONY: release-smart-home
+release-smart-home: build
+	@echo "▶ Packaging Smart Home installer..."
+	@rm -rf $(DIST_DIR)/ems-smart-home
 	@mkdir -p $(DIST_DIR)/ems-smart-home
 	@cp $(DIST_DIR)/$(APP_NAME) $(DIST_DIR)/ems-smart-home/
 	@cp .env.smart-home $(DIST_DIR)/ems-smart-home/.env
 	@cp config/dev.yaml $(DIST_DIR)/ems-smart-home/config.yaml
-	@mkdir -p $(DIST_DIR)/ems-smart-home/data
-	@cd $(DIST_DIR) && zip -r ems-smart-home-$$(go env GOOS)-$$(go env GOARCH).zip ems-smart-home/
+	$(call bundle,ems-smart-home)
+	@cd $(DIST_DIR) && zip -rq ems-smart-home-$$(go env GOOS)-$$(go env GOARCH).zip ems-smart-home/
 	@rm -rf $(DIST_DIR)/ems-smart-home
 	@echo "✅ $(DIST_DIR)/ems-smart-home-$$(go env GOOS)-$$(go env GOARCH).zip"
 
-.PHONY: package-factory
-package-factory: build
-	@echo "▶ Packaging Factory bundle..."
+.PHONY: release-factory
+release-factory: build
+	@echo "▶ Packaging Factory installer..."
+	@rm -rf $(DIST_DIR)/ems-factory
 	@mkdir -p $(DIST_DIR)/ems-factory
 	@cp $(DIST_DIR)/$(APP_NAME) $(DIST_DIR)/ems-factory/
 	@cp .env.factory $(DIST_DIR)/ems-factory/.env
 	@cp config/production.yaml $(DIST_DIR)/ems-factory/config.yaml
-	@mkdir -p $(DIST_DIR)/ems-factory/data
-	@cd $(DIST_DIR) && zip -r ems-factory-$$(go env GOOS)-$$(go env GOARCH).zip ems-factory/
+	$(call bundle,ems-factory)
+	@cd $(DIST_DIR) && zip -rq ems-factory-$$(go env GOOS)-$$(go env GOARCH).zip ems-factory/
 	@rm -rf $(DIST_DIR)/ems-factory
 	@echo "✅ $(DIST_DIR)/ems-factory-$$(go env GOOS)-$$(go env GOARCH).zip"
+
+# Release for a specific platform (cross-compile + package)
+.PHONY: release-linux
+release-linux: linux
+	@echo "▶ Packaging Linux x86_64 installers..."
+	@for profile in smart-home factory; do \
+		rm -rf $(DIST_DIR)/ems-$$profile; \
+		mkdir -p $(DIST_DIR)/ems-$$profile/data; \
+		cp $(DIST_DIR)/$(APP_NAME)-linux-amd64 $(DIST_DIR)/ems-$$profile/$(APP_NAME); \
+		cp scripts/install.sh scripts/uninstall.sh $(DIST_DIR)/ems-$$profile/; \
+		chmod +x $(DIST_DIR)/ems-$$profile/install.sh $(DIST_DIR)/ems-$$profile/uninstall.sh $(DIST_DIR)/ems-$$profile/$(APP_NAME); \
+		if [ "$$profile" = "smart-home" ]; then \
+			cp .env.smart-home $(DIST_DIR)/ems-$$profile/.env; \
+			cp config/dev.yaml $(DIST_DIR)/ems-$$profile/config.yaml; \
+		else \
+			cp .env.factory $(DIST_DIR)/ems-$$profile/.env; \
+			cp config/production.yaml $(DIST_DIR)/ems-$$profile/config.yaml; \
+		fi; \
+		cd $(DIST_DIR) && zip -rq ems-$$profile-linux-amd64.zip ems-$$profile/ && cd ..; \
+		rm -rf $(DIST_DIR)/ems-$$profile; \
+		echo "✅ $(DIST_DIR)/ems-$$profile-linux-amd64.zip"; \
+	done
+
+.PHONY: release-linux-arm
+release-linux-arm: linux-arm
+	@echo "▶ Packaging Linux ARM64 installers..."
+	@for profile in smart-home factory; do \
+		rm -rf $(DIST_DIR)/ems-$$profile; \
+		mkdir -p $(DIST_DIR)/ems-$$profile/data; \
+		cp $(DIST_DIR)/$(APP_NAME)-linux-arm64 $(DIST_DIR)/ems-$$profile/$(APP_NAME); \
+		cp scripts/install.sh scripts/uninstall.sh $(DIST_DIR)/ems-$$profile/; \
+		chmod +x $(DIST_DIR)/ems-$$profile/install.sh $(DIST_DIR)/ems-$$profile/uninstall.sh $(DIST_DIR)/ems-$$profile/$(APP_NAME); \
+		if [ "$$profile" = "smart-home" ]; then \
+			cp .env.smart-home $(DIST_DIR)/ems-$$profile/.env; \
+			cp config/dev.yaml $(DIST_DIR)/ems-$$profile/config.yaml; \
+		else \
+			cp .env.factory $(DIST_DIR)/ems-$$profile/.env; \
+			cp config/production.yaml $(DIST_DIR)/ems-$$profile/config.yaml; \
+		fi; \
+		cd $(DIST_DIR) && zip -rq ems-$$profile-linux-arm64.zip ems-$$profile/ && cd ..; \
+		rm -rf $(DIST_DIR)/ems-$$profile; \
+		echo "✅ $(DIST_DIR)/ems-$$profile-linux-arm64.zip"; \
+	done
+
+.PHONY: release-windows
+release-windows: windows
+	@echo "▶ Packaging Windows installers..."
+	@for profile in smart-home factory; do \
+		rm -rf $(DIST_DIR)/ems-$$profile; \
+		mkdir -p $(DIST_DIR)/ems-$$profile/data; \
+		cp $(DIST_DIR)/$(APP_NAME)-windows-amd64.exe $(DIST_DIR)/ems-$$profile/$(APP_NAME).exe; \
+		cp scripts/install.bat scripts/uninstall.bat $(DIST_DIR)/ems-$$profile/; \
+		if [ "$$profile" = "smart-home" ]; then \
+			cp .env.smart-home $(DIST_DIR)/ems-$$profile/.env; \
+			cp config/dev.yaml $(DIST_DIR)/ems-$$profile/config.yaml; \
+		else \
+			cp .env.factory $(DIST_DIR)/ems-$$profile/.env; \
+			cp config/production.yaml $(DIST_DIR)/ems-$$profile/config.yaml; \
+		fi; \
+		cd $(DIST_DIR) && zip -rq ems-$$profile-windows-amd64.zip ems-$$profile/ && cd ..; \
+		rm -rf $(DIST_DIR)/ems-$$profile; \
+		echo "✅ $(DIST_DIR)/ems-$$profile-windows-amd64.zip"; \
+	done
 
 # ---- Run ----
 
@@ -194,23 +275,27 @@ clean:
 .PHONY: help
 help:
 	@echo ""
-	@echo "Local EMS — Build Commands"
+	@echo "Local EMS — Build & Release Commands"
 	@echo "══════════════════════════════════════════════════════════"
-	@echo "  make              Build for current OS"
-	@echo "  make linux        Build Linux x86_64"
-	@echo "  make linux-arm    Build Linux ARM64 (Raspberry Pi)"
-	@echo "  make windows      Build Windows .exe"
-	@echo "  make macos        Build macOS Apple Silicon"
-	@echo "  make macos-intel  Build macOS Intel"
-	@echo "  make docker-all   Cross-compile all via Docker"
+	@echo "  Build (binary only):"
+	@echo "    make              Build for current OS"
+	@echo "    make linux        Build Linux x86_64"
+	@echo "    make linux-arm    Build Linux ARM64 (Raspberry Pi)"
+	@echo "    make windows      Build Windows .exe"
+	@echo "    make macos        Build macOS Apple Silicon"
+	@echo "    make docker-all   Cross-compile all via Docker"
 	@echo "  ──────────────────────────────────────────────────────"
-	@echo "  make package-smart-home   Package Smart Home bundle"
-	@echo "  make package-factory      Package Factory bundle"
+	@echo "  Release (installer .zip for customers):"
+	@echo "    make release              Package for current OS"
+	@echo "    make release-linux        Package Linux x86_64 .zip"
+	@echo "    make release-linux-arm    Package Linux ARM64 .zip"
+	@echo "    make release-windows      Package Windows .zip"
 	@echo "  ──────────────────────────────────────────────────────"
-	@echo "  make run              Run simulation (dev config)"
-	@echo "  make run-smart-home   Run simulation (smart home)"
-	@echo "  make run-factory      Run simulation (factory)"
+	@echo "  Run:"
+	@echo "    make run              Simulation (dev config)"
+	@echo "    make run-smart-home   Simulation (smart home)"
+	@echo "    make run-factory      Simulation (factory)"
 	@echo "  ──────────────────────────────────────────────────────"
-	@echo "  make test         Run tests"
-	@echo "  make clean        Remove dist/"
+	@echo "    make test         Run tests"
+	@echo "    make clean        Remove dist/"
 	@echo ""

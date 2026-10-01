@@ -63,8 +63,8 @@ func (s *sessionStore) create(username string) string {
 }
 
 func (s *sessionStore) validate(token string) bool {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	entry, ok := s.sessions[token]
 	if !ok {
 		return false

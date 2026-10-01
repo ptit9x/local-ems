@@ -151,6 +151,12 @@ docs/              → Plans, documentation & screenshots.
 5. **Simulator**: Deterministic simulation (seed=42) in `internal/simulator/`. Solar=sine wave, Load=random, SOC=ramp. Always test with the simulator before testing on real hardware.
 6. **Config**: Uses YAML (`config/dev.yaml`, `config/production.yaml`). Loaded via `internal/config/`. Supports site, devices, topology, polling, engine, storage, sync, and ui sections.
 7. **Thread Safety**: Device adapters that store data for concurrent access use `sync.RWMutex`. Controllers with dynamic runtime config (e.g., `ev_charging`) also use mutex protection.
+8. **Security Hardening** (local deployment):
+   - **Session store**: Uses `sync.Mutex` (full lock) in `validate()` — never `RLock()` when a write (`delete`) may occur.
+   - **WebSocket limit**: Max `100` concurrent connections (`maxWSClients` in `websocket.go`). New connections are rejected with `conn.Close()` when limit is reached.
+   - **HTTP timeouts**: All HTTP servers must set `ReadTimeout`, `WriteTimeout`, `IdleTimeout`, and `MaxHeaderBytes` to prevent Slowloris and connection leak attacks.
+   - **OCPP frame limit**: WebSocket frames are capped at `1 MB` (`maxOCPPFrameSize` in `ocpp/server.go`). Oversized frames are rejected before buffer allocation.
+   - When adding new network-facing code, always consider: connection limits, read timeouts, input size limits, and proper lock semantics.
 
 ### Testing
 

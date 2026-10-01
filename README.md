@@ -301,11 +301,26 @@ registry.Register(devices.PCSProfile{
 - [x] BESS group master/individual command mode
 - [x] SQLite WAL mode + auto-retention
 - [x] Real-time web dashboard (English/Vietnamese)
+- [x] OCPP 1.6J protocol for EV Chargers
+- [x] MQTT cloud sync (store-and-forward)
+- [x] Runtime security hardening (connection limits, timeouts, frame caps)
 - [ ] Multi-rate hardware polling (200ms / 1s / 5s)
-- [ ] MQTT cloud sync (store-and-forward)
 - [ ] Config hot-reload
 - [ ] Per-device health monitoring
-- [ ] OCPP protocol for EV Chargers
+
+## Security
+
+Local EMS runs on-premise with no cloud dependency. The following runtime protections are applied for stability and safety on local/OT networks:
+
+| Protection | Description |
+|-----------|-------------|
+| **WebSocket limit** | Max 100 concurrent connections — prevents resource exhaustion from misbehaving clients |
+| **HTTP timeouts** | Read/Write 15s, Idle 60s — prevents Slowloris and connection leaks |
+| **OCPP frame cap** | Max 1 MB per WebSocket frame — prevents OOM from oversized payloads |
+| **Session locking** | Full mutex on session validation — prevents race condition crashes under load |
+
+> [!NOTE]
+> Additional hardening (HTTPS, CORS, CSRF, rate limiting) is planned for cloud-connected deployments.
 
 ## Documentation
 

@@ -64,8 +64,12 @@ func NewServer(addr string, st *store.Store, mon *health.Monitor, auth AuthConfi
 	s.mux.HandleFunc("/ws", s.wsHub.HandleWS)
 
 	s.httpServer = &http.Server{
-		Addr:    addr,
-		Handler: authMiddleware(s.mux, s.auth, s.sessions),
+		Addr:           addr,
+		Handler:        authMiddleware(s.mux, s.auth, s.sessions),
+		ReadTimeout:    15 * time.Second,
+		WriteTimeout:   15 * time.Second,
+		IdleTimeout:    60 * time.Second,
+		MaxHeaderBytes: 1 << 20, // 1 MB
 	}
 
 	return s

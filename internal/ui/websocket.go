@@ -14,6 +14,9 @@ import (
 	"io"
 )
 
+// maxWSClients limits concurrent WebSocket connections to prevent resource exhaustion.
+const maxWSClients = 100
+
 // WSHub manages WebSocket connections and broadcasts messages.
 type WSHub struct {
 	clients map[*wsConn]bool
@@ -63,10 +66,14 @@ func (h *WSHub) Broadcast(msg []byte) {
 	}
 }
 
-func (h *WSHub) addClient(c *wsConn) {
+func (h *WSHub) addClient(c *wsConn) bool {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if len(h.clients) >= maxWSClients {
+		return false
+	}
 	h.clients[c] = true
+	return true
 }
 
 func (h *WSHub) removeClient(c *wsConn) {
@@ -116,7 +123,10 @@ func (h *WSHub) HandleWS(w http.ResponseWriter, r *http.Request) {
 	bw.Flush()
 
 	ws := &wsConn{conn: conn, bw: bw}
-	h.addClient(ws)
+	if !h.addClient(ws) {
+		conn.Close()
+		return
+	}
 
 	// Read loop (to detect disconnects)
 	go func() {

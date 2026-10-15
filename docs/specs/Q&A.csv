@@ -1,0 +1,52 @@
+,"VMO Holdings
+Addess: 11th Floor, TTC Tower, 19 Duy Tan st., Dich Vong Hau ward., Cau Giay dist., Hanoi
+Tel: +84 24 3312 0103                              Email: info@vmogroup.com",,,,,,
+,Questionnaires,,,,,,
+,BID name : Energy Management System,,,,,,
+,Date issued:,,21/9/2026,,,,
+,,,,,,,
+,No.,Type,Category,Questions,Creator,Answers,Answer Date
+,1,Mandatory,Business Objective,"From our previous conversation, we understand that the scope of the project, for this phase, is related to:
+1- To collect Data from multiple sources
+2- To centralized the data to a local EMS, with connection to Clouds
+3- To define the relationship - conditions between PCS - BMS - Power Meter, in order to define the trigger point and/or Condition for Battery Charging/Discharging
+
+That is good for us to understand the straightforward mission of the project. 
+In addition, if would be great if we can be shared about:
+1. What is the Business goal of this project, is this going to be an internal platform, or part of the product that you are offering to the customer?
+2 How will you measure success? (e.g., lower electricity bills, peak shaving, EV charging revenue, or backup power). Do you have any commitment on business side (the commitment can be either in Scope/Functions, or Timeline?)",TamNM,"1. Part of the product we offer to the customer
+2. The system is able to control the PCS according to our given strategy",28/9/26
+,2,Optional,Business Objective,"Beyond the above scope, what is the roadmap/vision you have for the platform (EMS), would it be related to Data Analytics, or Simulation, etc.. in terms of Functions?",TamNM,1. Data Collection & Controlling of Equipment,28/9/26
+,3,Mandatory,Product Scope,"Regarding the complexity of the Data Acquisition and Data Flow, our notes for Data Acquisition is as below(please confirm or update if you have new information):
+- Scope: EMS/Cloud software as per mentioned diagram: is that represented the whole (completed) design for this phase?
+- Size: For BMS: 4 units × 5 MW (at least 1,600 battery cells in the BMS)
+- PCs: 24 unit
+- Each BMS and PCS has some hundreds, sometimes thousands of Data points 
+- Power Meter: ~150 Data points; critical data every 200 ms, others every 5 second
+Is this the number for the whole platform? Or just a Location/Facilities.
+In near future (1-5 years), do you have plan to increase the size, both in terms of BMS/PCS and/or Location/Factory?
+",TamNM,"1. Scope 
+- Phase 1 
+Collect data from PCS, BESS, EV Charger, Power meter. 
+With collected Data, Calculate Power according to given strategy. 
+Write the data to the PCS or EV Charger
+2. Size: BMS - 4 Units. PCS - 24 Units. EV Charger: 6 Units. Power Meter - 3 Units
+3. This number is for each site.
+4. Yes, there is a plan to increase",28/9/26
+,4,Optional,Product Scope,"Beyond the above question regarding scaling up, do you have plan to deploy the EMS for multiple Customer/Location? If yes are they going to be managed under a share infrastructure, or it will be as Saas, or Separated on Prem platform?",TamNM,"1. Yes, EMS is for multiple customer, multiple location. All of them will be uploaded to Cloud, but using individual account to access the data",28/9/26
+,5,Mandatory,Product Scope,"Does the site already have a monitoring system (e.g., SCADA, energy meters, or sensors) and charge/discharge rules that we need to work with, or are we starting from scratch?
+If so, can we access the data(e.g., via API or Modbus)?",TamNM,"1. Already have energy meter, sensors, etc. you can access the data via API and Modbus on site",28/9/26
+,6,Mandatory,,"Do we have any data sample available at the moment for all the Sources above?Would it be possible for us to be shared in advance, prior to the proposal?",TamNM,2. We can share in advanced. We are pending to collect the actual address from the vendor as well.,28/9/26
+,7,Mandatory,,"Which Power Meter measures the actual grid import/export at the PCC and should be used by the Local EMS for breaker-limit and BESS charge/discharge control?
+",HuynhDN,I am expecting your system allow us to choose what is the relationship of each equipment,28/9/26
+,8,Mandatory,,"Will the Local EMS send one total charge/discharge command to the PCS Master, or does it need to send separate commands to each PCS unit?",HuynhDN,Both have to be handled as PCS from different brand will work differently.,28/9/26
+,9,Mandatory,,"As I understand it, Local EMS only needs to connect to an Ethernet Switch, right? 
+If so could you please provide the existing network topology diagram and technical documentation for the Power Meter, PCS and BMS systems that the Local EMS will connect to? 
+Please include device models, Master/Slave relationships, communication protocols, gateways, switches, and any existing communication hardware.",HuynhDN,We are collecting from the vendor at the moment,28/9/26
+,10,Mandatory,,"Could you identify which of the ~150 data points are considered important and must be refreshed every 200 ms, and which can be refreshed every 5 seconds?",,Yes,28/9/26
+,11,Mandatory,,"How dynamic is the Local EMS device configuration expected to be (device replacement, IP/communication parameter changes, or data-point changes), and what level of data loss is acceptable during normal operation or communication failures?",HuynhDN,"device replacement, IP/communication parameter changes.
+Data point should changes with the device and firmware
+within local, i am expecting no data loss. on cloud, every 5 mins data interval",28/9/26
+,12,Mandatory,,"Does “Backup Connection” mean data backup/remote monitoring only, or must the Cloud take over control if the Local EMS fails?",HuynhDN,I believe this part refers to EV Charger. CLoud take over control if the local EMS fails,28/9/26
+,13,Mandatory,,"What are the data synchronization and data integrity requirements between the Local EMS and Cloud Platform? Please clarify the required synchronization frequency for each type of data, acceptable delay or data loss, and how long data must be buffered locally when the Cloud connection is unavailable.",HuynhDN,"every 5 mins data interval.
+7 days data need to be buffered locally.",28/9/26

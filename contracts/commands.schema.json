@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/vmo/ems-platform/contracts/commands",
+  "title": "RemoteCommand",
+  "description": "Command sent from Cloud to Local EMS via MQTT for remote configuration.",
+  "type": "object",
+  "required": ["command", "request_id", "timestamp"],
+  "properties": {
+    "command": {
+      "type": "string",
+      "enum": ["update_tariff", "update_config", "restart", "identify"],
+      "description": "Command type"
+    },
+    "request_id": {
+      "type": "string",
+      "description": "Unique request ID for tracking (UUID)"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Command issued time (UTC, RFC3339)"
+    },
+    "payload": {
+      "type": "object",
+      "description": "Command-specific payload (varies by command type)"
+    }
+  },
+  "additionalProperties": false
+}

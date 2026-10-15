@@ -1,0 +1,14 @@
+brand: "custom_brand"
+registers:
+  active_power_setpoint: 100
+  active_power_actual: 102
+  reactive_power: 104
+  status: 110
+  register_count: 11
+scale_factor: 10.0
+command_mode: "master"
+status_map:
+  0: 0  # Standby
+  1: 1  # Running
+  2: 2  # Fault
+description: "Custom PCS brand"

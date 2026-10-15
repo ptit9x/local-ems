@@ -1,0 +1,15 @@
+brand: "liteon"
+registers:
+  active_power_setpoint: 40001
+  active_power_actual: 40003
+  reactive_power: 40005
+  status: 40007
+  register_count: 20
+scale_factor: 10.0
+command_mode: "individual"
+status_map:
+  0: 0  # Standby
+  1: 1  # Running
+  2: 2  # Fault
+  3: 0  # Shutdown → map to Stopped
+description: "Lite-On PCS profile (STUB - pending vendor documentation)"

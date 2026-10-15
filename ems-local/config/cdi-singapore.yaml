@@ -1,0 +1,116 @@
+# Local EMS — CDI Singapore Site Configuration (Phase 1)
+# 4 BMS units, 24 PCS (Lite-On), 3 Power Meters, 6 EV Chargers (OCPP)
+#
+# NOTE: Currently configured in simulator mode (simulate: true) with all devices
+# pointing to localhost (127.0.0.1:5020). When connecting to real site hardware,
+# device hosts, ports, and unit IDs will be updated to match the physical network topology.
+
+site:
+  id: "cdi-singapore"
+  name: "CDI Singapore BESS Site"
+
+simulate: true # Simulated mode until real hardware is available
+
+devices:
+  # BMS units: 4 units, each on a separate unit ID (simulating gateway/multi-drop addressing)
+  # Real hardware: will be mapped to actual BMS controller IP addresses or RS485 gateway ports
+  bms:
+    - { id: bms-0, host: 127.0.0.1, port: 5020, unit: 1 }
+    - { id: bms-1, host: 127.0.0.1, port: 5020, unit: 2 }
+    - { id: bms-2, host: 127.0.0.1, port: 5020, unit: 3 }
+    - { id: bms-3, host: 127.0.0.1, port: 5020, unit: 4 }
+
+  # PCS units: 24 Lite-On inverters with individual command mode
+  # Real hardware: each PCS unit will have its dedicated IP on the plant network
+  pcs:
+    - { id: pcs-0,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-1,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-2,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-3,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-4,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-5,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-6,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-7,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-8,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-9,  host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-10, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-11, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-12, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-13, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-14, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-15, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-16, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-17, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-18, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-19, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-20, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-21, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-22, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+    - { id: pcs-23, host: 127.0.0.1, port: 5020, unit: 1, brand: liteon, command_mode: individual }
+
+  # Power Meters: 3 meters (grid/PCC, solar, load)
+  # Real hardware: will be mapped to dedicated power meter interfaces / serial gateways
+  meter:
+    - { id: meter-pcc,   host: 127.0.0.1, port: 5020, unit: 1, role: grid, fast_ms: 200 }
+    - { id: meter-solar, host: 127.0.0.1, port: 5020, unit: 2, role: solar }
+    - { id: meter-load,  host: 127.0.0.1, port: 5020, unit: 3, role: load }
+
+  # EV Chargers: 6 chargers communicating via OCPP protocol
+  # Real hardware: will connect to OCPP gateway / endpoints
+  ev_charger:
+    - { id: ev-0, host: 127.0.0.1, port: 5020, unit: 1, protocol: ocpp }
+    - { id: ev-1, host: 127.0.0.1, port: 5020, unit: 1, protocol: ocpp }
+    - { id: ev-2, host: 127.0.0.1, port: 5020, unit: 1, protocol: ocpp }
+    - { id: ev-3, host: 127.0.0.1, port: 5020, unit: 1, protocol: ocpp }
+    - { id: ev-4, host: 127.0.0.1, port: 5020, unit: 1, protocol: ocpp }
+    - { id: ev-5, host: 127.0.0.1, port: 5020, unit: 1, protocol: ocpp }
+
+topology:
+  pcc_meter: meter-pcc
+  solar_meter: meter-solar
+  load_meter: meter-load
+  bess_groups:
+    - name: group-0
+      bms: [bms-0]
+      pcs: [pcs-0, pcs-1, pcs-2, pcs-3, pcs-4, pcs-5]
+      command_mode: individual
+    - name: group-1
+      bms: [bms-1]
+      pcs: [pcs-6, pcs-7, pcs-8, pcs-9, pcs-10, pcs-11]
+      command_mode: individual
+    - name: group-2
+      bms: [bms-2]
+      pcs: [pcs-12, pcs-13, pcs-14, pcs-15, pcs-16, pcs-17]
+      command_mode: individual
+    - name: group-3
+      bms: [bms-3]
+      pcs: [pcs-18, pcs-19, pcs-20, pcs-21, pcs-22, pcs-23]
+      command_mode: individual
+
+polling:
+  fast_ms: 200
+  standard_ms: 1000
+  slow_ms: 5000
+
+engine:
+  cycle_ms: 1000
+  distribution: equal
+
+storage:
+  driver: sqlite
+  dsn: /var/lib/ems/cdi-singapore.db
+  retention_days: 7
+  wal_mode: true
+
+sync:
+  enabled: false # Will enable when Cloud is ready
+  mqtt_broker: "tcp://localhost:1883"
+  client_id: "cdi-singapore-ems"
+  topic_prefix: "ems/cdi-singapore"
+  interval_seconds: 300
+  buffer_days: 7
+
+ui:
+  port: 8080
+  username: admin
+  password: ems@2025

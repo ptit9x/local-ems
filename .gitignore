@@ -32,10 +32,10 @@ Thumbs.db
 coverage.html
 
 # Reference code — not part of the project
-openems/
-myems/
+references/
 
-# Gemini AI
+# Scratch and AI
+scratch/
 .gemini/
 
 # Environment (keep .env.* templates, ignore active .env)

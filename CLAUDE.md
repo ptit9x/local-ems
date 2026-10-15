@@ -2,9 +2,16 @@
 
 ## Project Overview
 
-This is a **Local EMS (Energy Management System)** for a 5MWh BESS (Battery Energy Storage System), written in **Go 1.27**. The system controls battery charge/discharge using a **Constraint-based Controller Chain** architecture inherited from OpenEMS.
+This is the **EMS Platform** monorepo — a Battery Energy Storage System (BESS) management platform.
 
-**Current Status:** Phase 0–5 complete. Phase 6 (Multi-rate Polling), Phase 7 (Cloud Sync), Phase 8 (Production Hardening) are planned.
+| Sub-project | Path | Description |
+|-------------|------|-------------|
+| **Local EMS** | `ems-local/` | On-premise Go controller (5MWh BESS), constraint-based control chain |
+| **Cloud EMS** | `ems-cloud/` | Multi-tenant fleet management (NestJS + React) — Phase B, not started |
+| **Contracts** | `contracts/` | Shared MQTT schemas (JSON Schema) for Local ↔ Cloud communication |
+| **Docs** | `docs/` | Architecture, specs, plans, screenshots |
+
+**Current Status:** Local EMS Phase 0–5 complete. Phase 6 (Multi-rate Polling), Phase 7 (Cloud Sync), Phase 8 (Production Hardening) are planned.
 
 ## Core Architecture
 
@@ -40,13 +47,13 @@ Each 1-second cycle executes sequentially:
 ### Controller Priority Order
 
 | Priority | Controller | Package | Purpose |
-|----------|-----------|---------|---------|
-| **P1** | `limit_discharge` | `controllers/limit_discharge/` | Hardware protection — block discharge at low SOC, force charge at critical SOC |
-| **P2** | `sell_to_grid_limit` | `controllers/sell_to_grid_limit/` | Grid compliance — prevent exporting beyond allowed limit (default: zero-export) |
-| **P3** | `peak_shaving` | `controllers/peak_shaving/` | Cost optimization — discharge to shave grid demand peaks |
-| **P3** | `time_of_use` | `controllers/time_of_use/` | Cost optimization — charge at off-peak rates, discharge at peak rates |
-| **P3** | `ev_charging` | `controllers/ev_charging/` | DLM — manage site power budget for EV chargers |
-| **P4** | `balancing` | `controllers/balancing/` | Default — self-consumption optimization (solar → battery → load) |
+|----------|-----------|---------|---------| 
+| **P1** | `limit_discharge` | `ems-local/internal/engine/controllers/limit_discharge/` | Hardware protection — block discharge at low SOC, force charge at critical SOC |
+| **P2** | `sell_to_grid_limit` | `ems-local/internal/engine/controllers/sell_to_grid_limit/` | Grid compliance — prevent exporting beyond allowed limit (default: zero-export) |
+| **P3** | `peak_shaving` | `ems-local/internal/engine/controllers/peak_shaving/` | Cost optimization — discharge to shave grid demand peaks |
+| **P3** | `time_of_use` | `ems-local/internal/engine/controllers/time_of_use/` | Cost optimization — charge at off-peak rates, discharge at peak rates |
+| **P3** | `ev_charging` | `ems-local/internal/engine/controllers/ev_charging/` | DLM — manage site power budget for EV chargers |
+| **P4** | `balancing` | `ems-local/internal/engine/controllers/balancing/` | Default — self-consumption optimization (solar → battery → load) |
 
 ### DeviceState (Process Image)
 
@@ -80,16 +87,16 @@ type Constraint struct {
 
 ### Device Adapters
 
-| Device | Adapter | Reading Struct | Writable | Register File |
-|--------|---------|---------------|----------|---------------|
-| Grid/Solar Meter | `MeterAdapter` | `MeterReading` | No | `registers.go` |
-| Battery (BMS) | `BMSAdapter` | `BMSReading` | No | `registers.go` |
-| Inverter (PCS) | `PCSAdapter` / `ProfiledPCSAdapter` | `PCSReading` | Yes (`WriteSetpoint`) | `registers.go` + `pcs_profile.go` |
-| EV Charger | `EVChargerAdapter` | `EVChargerData` | Yes (`WriteMaxPower`, `WriteStartStop`) | `evcharger.go` |
+| Device | Adapter | Reading Struct | Writable | Source |
+|--------|---------|---------------|----------|--------|
+| Grid/Solar Meter | `MeterAdapter` | `MeterReading` | No | `ems-local/internal/devices/registers.go` |
+| Battery (BMS) | `BMSAdapter` | `BMSReading` | No | `ems-local/internal/devices/registers.go` |
+| Inverter (PCS) | `PCSAdapter` / `ProfiledPCSAdapter` | `PCSReading` | Yes (`WriteSetpoint`) | `ems-local/internal/devices/drivers/` |
+| EV Charger | `EVChargerAdapter` | `EVChargerData` | Yes (`WriteMaxPower`, `WriteStartStop`) | `ems-local/internal/devices/evcharger.go` |
 
 ### PCS Profile Registry
 
-Multi-brand PCS support via `PCSProfileRegistry` in `pcs_profile.go`:
+Multi-brand PCS support via `PCSProfileRegistry` in `ems-local/internal/devices/drivers/profile.go`:
 - `generic` — Default register map (registers 0–3)
 - `sungrow` — Sungrow PCS (registers 5000+, scale 1.0)
 - `sinexcel` — Sinexcel PCS (registers 100+, scale 10.0)
@@ -108,48 +115,54 @@ Add new brands by calling `registry.Register(PCSProfile{...})` in `DefaultPCSPro
 ### Directory Structure
 
 ```
-cmd/ems-core/      → Entrypoint. Only contains main.go, wires up dependencies.
-internal/          → Business logic. NOT exported outside the module.
-  channel/         → Channel abstraction for process image.
-  config/          → YAML config loader + validation.
-  devices/         → Device adapters (Meter, BMS, PCS, EV Charger).
-    aggregator/    → System state aggregation (Sum).
-  engine/          → Control engine.
-    controllers/   → Controller implementations (one package per controller).
-      limit_discharge/    → P1: Hardware protection.
-      sell_to_grid_limit/ → P2: Grid compliance.
-      peak_shaving/       → P3: Peak demand reduction.
-      time_of_use/        → P3: Time-based charge/discharge.
-      ev_charging/        → P3: EV charger DLM.
-      balancing/          → P4: Self-consumption default.
-    cycle/         → 1-second control loop.
-    scheduler/     → Controller priority scheduler.
-    resolver/      → Constraint → setpoint resolver.
-    distributor/   → Power distribution across PCS units.
-  health/          → Watchdog & health checks.
-  modbus/          → Zero-dependency Modbus TCP client/server.
-  ocpp/            → OCPP protocol for EV Chargers (planned).
-  polling/         → Multi-rate hardware polling (planned).
-  simulator/       → Hardware simulator (fake Modbus devices).
-  store/           → SQLite storage (WAL + auto-retention).
-  sync/            → Cloud sync (MQTT, planned).
-  ui/              → Embedded web dashboard (server, websocket, auth).
-config/            → YAML configuration files (dev.yaml, production.yaml).
-test/              → Test suites.
-  integration/     → Integration tests.
-  simulation/      → Simulation replay tests.
-web/               → Frontend source.
-docs/              → Plans, documentation & screenshots.
+ems-local/                 → Local EMS Go project
+  cmd/ems-core/            → Entrypoint. Only contains main.go, wires up dependencies.
+  internal/                → Business logic. NOT exported outside the module.
+    config/                → YAML config loader + validation.
+    devices/               → Device adapters (Meter, BMS, PCS, EV Charger).
+      drivers/             → Multi-brand PCS drivers (Generic, Sungrow, Sinexcel, LiteOn).
+      aggregator/          → System state aggregation (Sum).
+    engine/                → Control engine.
+      controllers/         → Controller implementations (one package per controller).
+        limit_discharge/   → P1: Hardware protection.
+        sell_to_grid_limit/→ P2: Grid compliance.
+        peak_shaving/      → P3: Peak demand reduction.
+        time_of_use/       → P3: Time-based charge/discharge.
+        ev_charging/       → P3: EV charger DLM.
+        balancing/         → P4: Self-consumption default.
+      cycle/               → 1-second control loop.
+      scheduler/           → Controller priority scheduler.
+      resolver/            → Constraint → setpoint resolver.
+      distributor/         → Power distribution across PCS units.
+    failover/              → Heartbeat & fault detection.
+    health/                → Watchdog & health checks.
+    modbus/                → Zero-dependency Modbus TCP client/server.
+    ocpp/                  → OCPP 1.6J protocol for EV Chargers.
+    simulator/             → Hardware simulator (fake Modbus devices).
+    store/                 → SQLite storage (WAL + auto-retention).
+    sync/                  → Cloud sync (MQTT, store-and-forward).
+    topology/              → BESS group & site topology.
+    ui/                    → Embedded web dashboard (server, websocket, auth).
+  web/                     → HTML/CSS/JS source (embedded via go:embed).
+  config/                  → YAML configuration files (dev.yaml, production.yaml).
+    pcs_profiles/          → PCS register profile YAMLs.
+  scripts/                 → Install/uninstall scripts.
+contracts/                 → Shared MQTT schemas (JSON Schema).
+docs/                      → Documentation.
+  architecture/            → System architecture diagrams.
+  specs/                   → Requirements & Q&A.
+  plans/                   → Design plans & roadmaps.
+  screenshots/             → UI screenshots.
 ```
 
 ### Key Conventions
 
-1. **Controllers**: Each controller lives in its own package under `internal/engine/controllers/`. Must implement the `Controller` interface (`ID()`, `Run()`, `IsEnabled()`) defined at `internal/engine/controllers/controller.go`. Optionally implement `PowerAdvisor` (`DesiredPower()`) for controllers that suggest a target setpoint.
+1. **Controllers**: Each controller lives in its own package under `ems-local/internal/engine/controllers/`. Must implement the `Controller` interface (`ID()`, `Run()`, `IsEnabled()`) defined at `ems-local/internal/engine/controllers/controller.go`. Optionally implement `PowerAdvisor` (`DesiredPower()`) for controllers that suggest a target setpoint.
 2. **Constraints**: Use the `Constraint` struct with pointer fields (`*int`) — `nil` means no limit. Use `intPtr(v)` helper to create pointers.
-3. **Devices**: Each device type (Meter, BMS, PCS, EV Charger) has its own adapter in `internal/devices/`. Device lifecycle is managed via `internal/devices/manager.go`. Device registry supports `Device`, `ControllableDevice`, and `ReconfigurableDevice` interfaces.
-4. **PCS Profiles**: Multi-brand PCS register profiles are defined in `internal/devices/pcs_profile.go`. Add new brands by registering a `PCSProfile` in `DefaultPCSProfileRegistry()`.
-5. **Simulator**: Deterministic simulation (seed=42) in `internal/simulator/`. Solar=sine wave, Load=random, SOC=ramp. Always test with the simulator before testing on real hardware.
-6. **Config**: Uses YAML (`config/dev.yaml`, `config/production.yaml`). Loaded via `internal/config/`. Supports site, devices, topology, polling, engine, storage, sync, and ui sections.
+3. **Devices**: Each device type (Meter, BMS, PCS, EV Charger) has its own adapter in `ems-local/internal/devices/`. Device lifecycle is managed via `ems-local/internal/devices/manager.go`. Device registry supports `Device`, `ControllableDevice`, and `ReconfigurableDevice` interfaces.
+4. **PCS Profiles**: Multi-brand PCS register profiles are defined in `ems-local/internal/devices/drivers/profile.go`. Add new brands by registering a `PCSProfile` in `DefaultPCSProfileRegistry()`.
+5. **Simulator**: Deterministic simulation (seed=42) in `ems-local/internal/simulator/`. Solar=sine wave, Load=random, SOC=ramp. Always test with the simulator before testing on real hardware.
+6. **Config**: Uses YAML (`ems-local/config/dev.yaml`, `ems-local/config/production.yaml`). Loaded via `ems-local/internal/config/`. Supports site, devices, topology, polling, engine, storage, sync, and ui sections.
 7. **Thread Safety**: Device adapters that store data for concurrent access use `sync.RWMutex`. Controllers with dynamic runtime config (e.g., `ev_charging`) also use mutex protection.
 8. **Security Hardening** (local deployment):
    - **Session store**: Uses `sync.Mutex` (full lock) in `validate()` — never `RLock()` when a write (`delete`) may occur.
@@ -161,16 +174,14 @@ docs/              → Plans, documentation & screenshots.
 ### Testing
 
 - **Unit tests**: Placed in the same package, in `*_test.go` files.
-- **Integration tests**: Placed in `test/integration/`.
-- **Simulation tests**: Placed in `test/simulation/`.
 - Every NEW controller must have unit tests covering: normal state (no constraints), trigger condition, boundary values, disabled state.
-- Run `go test ./internal/... -count=1` to execute all unit tests.
-- Run `go test ./test/... -count=1` to execute integration and simulation tests.
-- Run `go test ./... -count=1` to execute everything.
+- Run `cd ems-local && go test ./internal/... -count=1` to execute all unit tests.
+- Run `cd ems-local && go test ./... -count=1` to execute everything.
+- Or use `make test` from root or from `ems-local/`.
 
 ## Adding a New Controller
 
-1. Create a new package under `internal/engine/controllers/<controller_name>/`.
+1. Create a new package under `ems-local/internal/engine/controllers/<controller_name>/`.
 2. Implement the `Controller` interface: `ID() string`, `Run(state, collector) error`, `IsEnabled() bool`.
 3. Add a `Config` struct with a `DefaultConfig()` function for tunable parameters.
 4. The controller must only **read** the process image and **add constraints** — DO NOT write directly to hardware.
@@ -181,7 +192,7 @@ docs/              → Plans, documentation & screenshots.
 
 ## Adding a New Device Adapter
 
-1. Define register constants in `internal/devices/registers.go` (or in the adapter file for complex devices like `evcharger.go`).
+1. Define register constants in `ems-local/internal/devices/registers.go` (or in the adapter file for complex devices like `evcharger.go`).
 2. Create a `<DeviceName>Reading` struct with engineering units.
 3. Create a `<DeviceName>Adapter` with `Poll()` / `Read()` methods.
 4. For writable devices, implement `Write<Parameter>()` methods.
@@ -194,7 +205,7 @@ docs/              → Plans, documentation & screenshots.
 
 1. Get register addresses from the vendor Modbus datasheet.
 2. Create a `PCSProfile` struct with register addresses, scale factor, and status map.
-3. Register in `DefaultPCSProfileRegistry()` in `pcs_profile.go`.
+3. Register in `DefaultPCSProfileRegistry()` in `ems-local/internal/devices/drivers/profile.go`.
 4. Write unit tests verifying: profile registration, scale factor, status map completeness.
 5. Update YAML config to allow the new brand name.
 
@@ -229,6 +240,7 @@ This project is licensed under the [MIT License](LICENSE).
 
 ## Reference Documentation
 
-- [EMS MVP Plan](docs/ems-mvp-plan.md) — Detailed design & task roadmap.
-- [Cloud ERP Plan](docs/cloud-erp-plan.md) — Cloud ERP plan (future phase).
-- [Architecture Diagram](docs/architecture.jpg) — System architecture overview.
+- [EMS MVP Plan](docs/plans/ems-mvp-plan.md) — Detailed design & task roadmap.
+- [Cloud ERP Plan](docs/plans/cloud-erp-plan.md) — Cloud ERP plan (future phase).
+- [Architecture Diagram](docs/architecture/architecture.jpg) — System architecture overview.
+- [Contracts README](contracts/README.md) — MQTT schemas for Local ↔ Cloud.

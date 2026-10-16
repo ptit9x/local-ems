@@ -4,10 +4,13 @@
   "title": "TelemetryMessage",
   "description": "Aggregated telemetry data sent from Local EMS to Cloud every sync interval (default 5 minutes) via MQTT.",
   "type": "object",
-  "required": ["site_id", "timestamp", "interval_sec", "cycle_count"],
+  "required": ["schema_version", "message_id", "site_id", "timestamp", "interval_sec", "cycle_count"],
   "properties": {
+    "schema_version": { "const": 1 },
+    "message_id": { "type": "string", "minLength": 1, "maxLength": 128 },
     "site_id": {
       "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$",
       "description": "Unique site identifier, e.g. 'sg-01'"
     },
     "timestamp": {
@@ -17,6 +20,7 @@
     },
     "interval_sec": {
       "type": "integer",
+      "minimum": 1,
       "description": "Duration of the aggregation window in seconds"
     },
     "avg_solar_w": {
@@ -67,6 +71,7 @@
     },
     "cycle_count": {
       "type": "integer",
+      "minimum": 1,
       "description": "Number of 1-second control cycles in this window"
     },
     "alerts": {

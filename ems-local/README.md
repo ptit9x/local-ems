@@ -1,11 +1,11 @@
 # ⚡ Local EMS — On-Premise Energy Management System
 
-Constraint-based Battery Energy Storage System (BESS) controller written in pure Go. Runs on-site with zero cloud dependency.
+Constraint-based Battery Energy Storage System (BESS) controller written in Go. It runs the control loop independently of Cloud and buffers telemetry locally when MQTT is unavailable. The executable currently supports simulation mode only; physical-site commissioning is not yet enabled in `cmd/ems-core`.
 
 ## Quick Start
 
 ```bash
-# Prerequisites: Go 1.27+, GCC (for SQLite)
+# Prerequisites: Go 1.27+, GCC/Clang (for SQLite CGO)
 # macOS: xcode-select --install
 # Ubuntu: sudo apt install build-essential
 
@@ -39,6 +39,8 @@ internal/
 web/                         ← HTML/CSS/JS source (embedded via go:embed)
 config/                      ← YAML configs & PCS register profiles
 ```
+
+The simulator supports time-varying solar/load behavior and a deterministic scenario at `config/scenarios/full-demo.yaml`. The CDI demo topology contains 4 BMS, 24 PCS, 3 meters, and 6 EV chargers.
 
 ## Control Strategy (Constraint Chain)
 
@@ -74,6 +76,8 @@ go run ./cmd/ems-core --config config/production.yaml
 go run ./cmd/ems-core --simulate                        # No hardware needed
 go run ./cmd/ems-core --config config/cdi-singapore.yaml --simulate
 ```
+
+Runtime flags include `--config`, `--simulate`, `--ui-port`, `--db`, and `--version`. Configuration precedence is environment variables, the selected `.env` file, YAML values, then defaults.
 
 ## Adding a New PCS Brand
 

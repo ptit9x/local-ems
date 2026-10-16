@@ -1,0 +1,217 @@
+// Prisma schema for EMS Cloud Platform
+// Uses PostgreSQL with TimescaleDB for time-series telemetry
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Multi-tenant ───
+
+model Tenant {
+  id        String   @id @default(uuid())
+  name      String
+  slug      String   @unique
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  sites Site[]
+  users User[]
+
+  @@map("tenants")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  name      String
+  passwordHash String   @map("password_hash")
+  role      UserRole @default(VIEWER)
+  tenantId  String   @map("tenant_id")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  refreshTokens RefreshToken[]
+
+  @@index([tenantId])
+  @@map("users")
+}
+
+enum UserRole {
+  ADMIN
+  OPERATOR
+  VIEWER
+}
+
+// ─── Sites & Devices ───
+
+model Site {
+  id        String     @id @default(uuid())
+  siteCode  String     @unique @map("site_code") // matches ems-local site.id (e.g. "sg-01")
+  name      String
+  location  String?
+  timezone  String     @default("UTC")
+  status    SiteStatus @default(ONLINE)
+  tenantId  String     @map("tenant_id")
+  createdAt DateTime   @default(now()) @map("created_at")
+  updatedAt DateTime   @updatedAt @map("updated_at")
+
+  // Metadata from local EMS
+  lastSeenAt DateTime? @map("last_seen_at")
+  firmware   String?
+
+  tenant    Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  telemetry TelemetryRecord[]
+  devices   Device[]
+  heartbeats Heartbeat[]
+  alerts    Alert[]
+  commands  Command[]
+
+  @@index([tenantId])
+  @@index([siteCode])
+  @@map("sites")
+}
+
+enum SiteStatus {
+  ONLINE
+  OFFLINE
+  MAINTENANCE
+}
+
+// ─── Telemetry (TimescaleDB hypertable) ───
+
+model TelemetryRecord {
+  // TimescaleDB requires timestamp as part of the primary key for hypertables.
+  // We use a composite unique constraint instead of a single auto-increment PK.
+  id        BigInt   @default(autoincrement())
+  timestamp DateTime @map("timestamp")
+  siteId    String   @map("site_id")
+  messageId String   @map("message_id")
+  schemaVersion Int  @default(1) @map("schema_version")
+
+  intervalSec       Int    @map("interval_sec")
+  avgSolarW         Int    @default(0) @map("avg_solar_w")
+  avgLoadW          Int    @default(0) @map("avg_load_w")
+  avgGridW          Int    @default(0) @map("avg_grid_w")
+  avgEssW           Int    @default(0) @map("avg_ess_w")
+  minSoc            Float  @default(0) @map("min_soc")
+  maxSoc            Float  @default(0) @map("max_soc")
+  avgSoc            Float  @default(0) @map("avg_soc")
+  maxTempC          Float  @default(0) @map("max_temp_c")
+  energyChargeWh    Int    @default(0) @map("energy_charge_wh")
+  energyDischargeWh Int    @default(0) @map("energy_discharge_wh")
+  cycleCount        Int    @default(0) @map("cycle_count")
+  alerts            Json?  @map("alerts")
+
+  site Site @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@id([id, timestamp])
+  @@unique([messageId, timestamp])
+  @@index([siteId, timestamp])
+  @@index([timestamp])
+  @@map("telemetry_records")
+}
+
+model Device {
+  id        String       @id @default(uuid())
+  externalId String      @map("external_id")
+  type      DeviceType
+  status    DeviceStatus @default(ONLINE)
+  metadata  Json?
+  siteId    String       @map("site_id")
+  updatedAt DateTime     @updatedAt @map("updated_at")
+  site      Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, externalId])
+  @@index([siteId, type])
+  @@map("devices")
+}
+
+enum DeviceType {
+  BMS
+  PCS
+  METER
+  EV_CHARGER
+}
+enum DeviceStatus {
+  ONLINE
+  OFFLINE
+  FAULT
+}
+
+model Heartbeat {
+  id            BigInt   @default(autoincrement())
+  timestamp     DateTime
+  siteId        String   @map("site_id")
+  schemaVersion Int      @default(1) @map("schema_version")
+  site          Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@id([id, timestamp])
+  @@index([siteId, timestamp])
+  @@map("heartbeats")
+}
+
+model Alert {
+  id             String        @id @default(uuid())
+  siteId         String        @map("site_id")
+  code           String
+  severity       AlertSeverity @default(WARNING)
+  message        String
+  active         Boolean       @default(true)
+  acknowledgedAt DateTime?     @map("acknowledged_at")
+  createdAt      DateTime      @default(now()) @map("created_at")
+  resolvedAt     DateTime?     @map("resolved_at")
+  site           Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, active])
+  @@map("alerts")
+}
+
+enum AlertSeverity {
+  INFO
+  WARNING
+  CRITICAL
+}
+
+model Command {
+  id             String        @id @default(uuid())
+  requestId      String        @unique @map("request_id")
+  siteId         String        @map("site_id")
+  type           String
+  payload        Json?
+  status         CommandStatus @default(PENDING)
+  result         Json?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  publishedAt    DateTime?     @map("published_at")
+  acknowledgedAt DateTime?     @map("acknowledged_at")
+  site           Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@index([siteId, createdAt])
+  @@map("commands")
+}
+
+enum CommandStatus {
+  PENDING
+  PUBLISHED
+  ACKNOWLEDGED
+  FAILED
+  TIMED_OUT
+}
+
+model RefreshToken {
+  id        String   @id @default(uuid())
+  tokenHash String   @unique @map("token_hash")
+  userId    String   @map("user_id")
+  expiresAt DateTime @map("expires_at")
+  revokedAt DateTime? @map("revoked_at")
+  createdAt DateTime @default(now()) @map("created_at")
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("refresh_tokens")
+}

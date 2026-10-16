@@ -4,8 +4,13 @@
   "title": "RemoteCommand",
   "description": "Command sent from Cloud to Local EMS via MQTT for remote configuration.",
   "type": "object",
-  "required": ["command", "request_id", "timestamp"],
+  "required": ["schema_version", "site_id", "command", "request_id", "timestamp"],
   "properties": {
+    "schema_version": { "const": 1 },
+    "site_id": {
+      "type": "string",
+      "pattern": "^[a-z0-9][a-z0-9-]{1,62}$"
+    },
     "command": {
       "type": "string",
       "enum": ["update_tariff", "update_config", "restart", "identify"],

@@ -7,11 +7,11 @@ This is the **EMS Platform** monorepo — a Battery Energy Storage System (BESS)
 | Sub-project | Path | Description |
 |-------------|------|-------------|
 | **Local EMS** | `ems-local/` | On-premise Go controller (5MWh BESS), constraint-based control chain |
-| **Cloud EMS** | `ems-cloud/` | Multi-tenant fleet management (NestJS + React) — Phase B, not started |
+| **Cloud EMS** | `ems-cloud/` | Multi-tenant fleet management simulator MVP (NestJS + React) |
 | **Contracts** | `contracts/` | Shared MQTT schemas (JSON Schema) for Local ↔ Cloud communication |
 | **Docs** | `docs/` | Architecture, specs, plans, screenshots |
 
-**Current Status:** Local EMS Phase 0–5 complete. Phase 6 (Multi-rate Polling), Phase 7 (Cloud Sync), Phase 8 (Production Hardening) are planned.
+**Current Status:** Local and Cloud simulator MVP implemented. See `docs/plans/implementation-status.md` for the verified status and production blockers.
 
 ## Core Architecture
 

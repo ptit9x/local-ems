@@ -41,23 +41,52 @@ release:
 clean-local:
 	@$(MAKE) -C ems-local clean
 
-# ---- Cloud EMS (NestJS + React, Phase B) ----
+# ---- Cloud EMS (NestJS + React) ----
 
 .PHONY: dev-cloud
 dev-cloud:
-	@echo "⏳ ems-cloud not yet initialized. See README.md for roadmap."
+	@cd ems-cloud && docker compose up -d && npm run dev
 
 .PHONY: test-cloud
 test-cloud:
-	@echo "⏳ ems-cloud not yet initialized. See README.md for roadmap."
+	@cd ems-cloud && npm run db:generate && npm run build && npm test
+
+.PHONY: test-contracts
+test-contracts:
+	@cd ems-cloud && npm run test:contracts
+
+.PHONY: clean-cloud
+clean-cloud:
+	@cd ems-cloud && docker compose down
 
 # ---- All ----
 
 .PHONY: test-all
-test-all: test-local test-cloud
+test-all: test-local test-contracts test-cloud
+
+.PHONY: demo
+demo:
+	@cd ems-cloud && docker compose up -d --build
+	@echo "Dashboard: http://localhost:5173  API: http://localhost:3000/api"
+	@echo "Login: admin@demo.local / demo1234"
+	@cd ems-local && mkdir -p data && EMS_SYNC_ENABLED=true EMS_SYNC_INTERVAL_SEC=10 EMS_MQTT_BROKER=tcp://localhost:1883 go run ./cmd/ems-core --simulate --config config/cdi-singapore.yaml --db data/full-sim.db
+
+.PHONY: demo-down
+demo-down:
+	@cd ems-cloud && docker compose down
+
+.PHONY: demo-check
+demo-check:
+	@cd ems-cloud && npm run test:smoke
+
+.PHONY: demo-reset
+demo-reset:
+	@echo "WARNING: deleting simulator database volumes and local demo data"
+	@cd ems-cloud && docker compose down -v
+	@rm -f ems-local/data/full-sim.db ems-local/data/full-sim.db-shm ems-local/data/full-sim.db-wal
 
 .PHONY: clean
-clean: clean-local
+clean: clean-local clean-cloud
 	@echo "✅ All clean"
 
 # ---- Help ----
@@ -82,5 +111,9 @@ help:
 	@echo "  ──────────────────────────────────────────────────────"
 	@echo "  All:"
 	@echo "    make test-all       Run all tests (local + cloud)"
+	@echo "    make demo           Start full simulator demo"
+	@echo "    make demo-down      Stop demo services"
+	@echo "    make demo-check     Smoke-test a running demo"
+	@echo "    make demo-reset     Delete all demo data"
 	@echo "    make clean          Clean all build artifacts"
 	@echo ""

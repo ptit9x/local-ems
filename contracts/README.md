@@ -6,14 +6,15 @@ This directory is the **single source of truth** for all data formats exchanged 
 
 | Topic Pattern | Direction | Description |
 |---|---|---|
-| `ems/{site_id}/telemetry` | Local → Cloud | Aggregated telemetry (every 5 min) |
+| `ems/{site_id}/telemetry` | Local → Cloud | Aggregated telemetry (interval is configurable; demo uses 10 sec) |
 | `ems/{site_id}/heartbeat` | Local → Cloud | Heartbeat signal (every 30 sec) |
 | `ems/{site_id}/alerts` | Local → Cloud | Real-time alerts |
 | `ems/{site_id}/command` | Cloud → Local | Remote configuration commands |
 | `ems/{site_id}/command/ack` | Local → Cloud | Command acknowledgment |
 
 - `{site_id}` is a lowercase slug, e.g. `sg-01`, `tw-factory-02`.
-- QoS 1 for telemetry/alerts, QoS 0 for heartbeat.
+- QoS 1 for telemetry, alerts, commands and acknowledgments; QoS 0 for heartbeat.
+- Every message carries `schema_version: 1`; telemetry additionally carries a stable `message_id` for QoS 1 deduplication.
 
 ## Schema Files
 
@@ -31,8 +32,8 @@ This directory is the **single source of truth** for all data formats exchanged 
 
 ## Mapping to Code
 
-| Schema Field | Go Struct (`ems-local/internal/sync/aggregator.go`) | TypeScript Type (`ems-cloud/packages/shared-types/`) |
+| Schema Field | Go Struct (`ems-local/internal/sync/aggregator.go`) | TypeScript Type (`ems-cloud/packages/shared/src/`) |
 |---|---|---|
-| `site_id` | `TelemetryMessage.SiteID` | `TelemetryMessage.siteId` |
-| `avg_solar_w` | `TelemetryMessage.AvgSolarW` | `TelemetryMessage.avgSolarW` |
-| ... | (snake_case JSON tags) | (camelCase via transform) |
+| `site_id` | `TelemetryMessage.SiteID` | `TelemetryMessage.site_id` |
+| `avg_solar_w` | `TelemetryMessage.AvgSolarW` | `TelemetryMessage.avg_solar_w` |
+| ... | (snake_case JSON tags) | (snake_case contract fields) |

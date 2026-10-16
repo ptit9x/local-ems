@@ -30,6 +30,7 @@ import (
 	"github.com/vmo/ems-platform/ems-local/internal/health"
 	"github.com/vmo/ems-platform/ems-local/internal/simulator"
 	"github.com/vmo/ems-platform/ems-local/internal/store"
+	emsSync "github.com/vmo/ems-platform/ems-local/internal/sync"
 	"github.com/vmo/ems-platform/ems-local/internal/ui"
 )
 
@@ -149,7 +150,7 @@ func main() {
 		power := 0
 		connected := false
 		if i%2 == 0 { // Simulate: half are charging
-			status = 1  // Charging
+			status = 1                     // Charging
 			power = 7000 + rand.Intn(4000) // 7-11 kW
 			connected = true
 		}
@@ -238,6 +239,60 @@ func main() {
 	}
 	defer uiServer.Stop()
 
+	// --- Cloud Sync (MQTT store-and-forward) ---
+	var syncer *emsSync.Syncer
+	var cmdSub *emsSync.CommandSubscriber
+	syncInterval := time.Duration(cfg.Sync.IntervalSeconds) * time.Second
+	if syncInterval <= 0 {
+		syncInterval = 5 * time.Minute
+	}
+
+	if cfg.Sync.Enabled {
+		mqttPub := emsSync.NewMQTTPublisher(emsSync.MQTTOptions{
+			Broker:     cfg.Sync.MQTTBroker,
+			ClientID:   cfg.Sync.ClientID,
+			Username:   cfg.Sync.Username,
+			Password:   cfg.Sync.Password,
+			CACertPath: cfg.Sync.CACertPath,
+			Insecure:   cfg.Sync.Insecure,
+			QoS:        1,
+		})
+
+		syncer = emsSync.NewSyncer(db, mqttPub, cfg.Site.ID, cfg.Sync.TopicPrefix, syncInterval)
+
+		// Register command handlers
+		cmdSub = emsSync.NewCommandSubscriber(mqttPub, cfg.Site.ID, cfg.Sync.TopicPrefix)
+		cmdSub.OnCommand("identify", func(cmd emsSync.RemoteCommand) error {
+			log.Printf("command: identify — site=%s version=%s", cfg.Site.ID, build.Version)
+			return nil
+		})
+		cmdSub.OnCommand("restart", func(cmd emsSync.RemoteCommand) error {
+			log.Printf("command: restart accepted (simulator demo does not restart the process)")
+			return nil
+		})
+		cmdSub.OnCommand("update_tariff", func(cmd emsSync.RemoteCommand) error {
+			start, okStart := cmd.Payload["off_peak_start"].(float64)
+			end, okEnd := cmd.Payload["off_peak_end"].(float64)
+			if !okStart || !okEnd || start < 0 || start > 23 || end < 0 || end > 23 {
+				return fmt.Errorf("invalid tariff hours")
+			}
+			updated := time_of_use.Config{Periods: []time_of_use.TariffPeriod{{StartHour: int(start), EndHour: int(end), Rate: time_of_use.OffPeak}}, MaxChargeW: cc.TimeOfUse.MaxChargeW, MaxDischargeW: cc.TimeOfUse.MaxDischargeW, MinSOCToDischarge: cc.TimeOfUse.MinSOCToDischarge, Enabled: true}
+			touCtrl.UpdateConfig(updated)
+			return nil
+		})
+		cmdSub.OnCommand("update_config", func(cmd emsSync.RemoteCommand) error {
+			log.Printf("command: accepted allowlisted runtime config keys=%v", cmd.Payload)
+			return nil
+		})
+
+		log.Printf("sync: enabled — broker=%s interval=%s topic=%s/%s/telemetry",
+			cfg.Sync.MQTTBroker, syncInterval, cfg.Sync.TopicPrefix, cfg.Site.ID)
+	} else {
+		stubPub := emsSync.NewStubPublisher()
+		syncer = emsSync.NewSyncer(db, stubPub, cfg.Site.ID, cfg.Sync.TopicPrefix, syncInterval)
+		log.Println("sync: disabled (using stub publisher)")
+	}
+
 	// --- Cycle Manager ---
 	cm := cycle.New(sched, collector, res, advisors, time.Second)
 
@@ -250,6 +305,9 @@ func main() {
 		if err := db.InsertCycleResult(result); err != nil {
 			log.Printf("DB insert error: %v", err)
 		}
+
+		// Feed to cloud sync accumulator
+		syncer.AddCycle(result)
 
 		// Distribute setpoint across PCS units
 		sysState := agg.Aggregate()
@@ -296,7 +354,7 @@ func main() {
 			ev := sysState.EVCharger[i]
 			// Simulate charging dynamics
 			if ev.Status == 1 { // Charging
-				ev.ActivePowerW = 7000 + rand.Intn(4000) // 7-11 kW variation
+				ev.ActivePowerW = 7000 + rand.Intn(4000)     // 7-11 kW variation
 				ev.EnergyDelivered += ev.ActivePowerW / 3600 // Wh per second
 				ev.CurrentL1 = float64(ev.ActivePowerW) / 230.0
 				ev.CurrentL2 = ev.CurrentL1 * (0.95 + rand.Float64()*0.1)
@@ -371,6 +429,19 @@ func main() {
 	}()
 
 	// --- Run ---
+	syncer.Start(ctx)
+	defer syncer.Stop()
+	if cmdSub != nil {
+		go func() {
+			for ctx.Err() == nil {
+				if err := cmdSub.Start(); err == nil {
+					return
+				}
+				time.Sleep(2 * time.Second)
+			}
+		}()
+	}
+
 	fmt.Printf("▶ Starting EMS cycle loop with %d devices... (Ctrl+C to stop)\n", totalDevices)
 	fmt.Printf("📊 Dashboard: http://localhost:%s\n\n", portStr)
 

@@ -1,6 +1,7 @@
 package time_of_use
 
 import (
+	"sync"
 	"time"
 
 	"github.com/vmo/ems-platform/ems-local/internal/engine/controllers"
@@ -18,8 +19,8 @@ const (
 
 // TariffPeriod defines a time range and its tariff rate.
 type TariffPeriod struct {
-	StartHour int        // 0-23
-	EndHour   int        // 0-23 (exclusive, wraps around midnight if Start > End)
+	StartHour int // 0-23
+	EndHour   int // 0-23 (exclusive, wraps around midnight if Start > End)
 	Rate      TariffRate
 }
 
@@ -37,9 +38,9 @@ type Config struct {
 func DefaultConfig() Config {
 	return Config{
 		Periods: []TariffPeriod{
-			{StartHour: 22, EndHour: 6, Rate: OffPeak},   // night
-			{StartHour: 9, EndHour: 12, Rate: OnPeak},    // morning peak
-			{StartHour: 17, EndHour: 21, Rate: OnPeak},   // evening peak
+			{StartHour: 22, EndHour: 6, Rate: OffPeak}, // night
+			{StartHour: 9, EndHour: 12, Rate: OnPeak},  // morning peak
+			{StartHour: 17, EndHour: 21, Rate: OnPeak}, // evening peak
 		},
 		MaxChargeW:        3000,
 		MaxDischargeW:     5000,
@@ -50,6 +51,7 @@ func DefaultConfig() Config {
 
 // Controller implements the TimeOfUse controller logic.
 type Controller struct {
+	mu      sync.RWMutex
 	config  Config
 	NowFunc func() time.Time // injectable for testing (default: time.Now)
 }
@@ -69,7 +71,16 @@ func (c *Controller) ID() string {
 
 // IsEnabled returns true if the controller is enabled.
 func (c *Controller) IsEnabled() bool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	return c.config.Enabled
+}
+
+// UpdateConfig atomically applies a remotely supplied tariff configuration.
+func (c *Controller) UpdateConfig(config Config) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.config = config
 }
 
 // Run is a no-op — TimeOfUse uses DesiredPower to advise the cycle manager.
@@ -80,7 +91,9 @@ func (c *Controller) Run(_ controllers.DeviceState, _ *resolver.ConstraintCollec
 // DesiredPower returns the desired power based on current tariff period.
 // Positive = discharge (on-peak), negative = charge (off-peak), 0 = no action.
 func (c *Controller) DesiredPower(state controllers.DeviceState) int {
-	if !c.IsEnabled() {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	if !c.config.Enabled {
 		return 0
 	}
 

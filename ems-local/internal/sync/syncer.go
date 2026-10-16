@@ -21,7 +21,7 @@ type Syncer struct {
 	accumulator *CycleAccumulator
 	done        chan struct{}
 	wg          sync.WaitGroup
-	
+
 	mu           sync.Mutex
 	lastSyncTime time.Time
 }
@@ -56,6 +56,8 @@ func (s *Syncer) run(ctx context.Context) {
 
 	ticker := time.NewTicker(s.interval)
 	defer ticker.Stop()
+	heartbeat := time.NewTicker(30 * time.Second)
+	defer heartbeat.Stop()
 
 	// Initial connection
 	_ = s.publisher.Connect()
@@ -68,14 +70,24 @@ func (s *Syncer) run(ctx context.Context) {
 			return
 		case <-ticker.C:
 			s.tick()
+		case <-heartbeat.C:
+			s.publishHeartbeat()
 		}
 	}
+}
+
+func (s *Syncer) publishHeartbeat() {
+	if !s.publisher.IsConnected() {
+		return
+	}
+	payload, _ := json.Marshal(map[string]interface{}{"schema_version": 1, "site_id": s.siteID, "timestamp": time.Now().UTC()})
+	_ = s.publisher.Publish(fmt.Sprintf("%s/%s/heartbeat", s.topicPrefix, s.siteID), payload)
 }
 
 func (s *Syncer) tick() {
 	// 1. Flush accumulator
 	msg := s.accumulator.Flush()
-	
+
 	// Only insert if there are actually cycles
 	if msg.CycleCount > 0 {
 		payloadBytes, err := json.Marshal(msg)
@@ -107,10 +119,10 @@ func (s *Syncer) tick() {
 				_ = s.publisher.Close()
 				return
 			}
-			
+
 			// Mark as sent
 			_ = s.store.MarkOutboxSent(r.ID)
-			// Wait, the requirements state 'sent' and 'acked'. Since MQTT publish 
+			// Wait, the requirements state 'sent' and 'acked'. Since MQTT publish
 			// doesn't inherently give an async ack in this simple interface,
 			// we can just mark it 'acked' or 'sent'. The requirements mention
 			// "mark outbox sent" and "mark outbox acked".

@@ -103,11 +103,11 @@ storage:
   wal_mode: true
 
 sync:
-  enabled: false # Will enable when Cloud is ready
+  enabled: false # make demo enables sync through the environment
   mqtt_broker: "tcp://localhost:1883"
   client_id: "cdi-singapore-ems"
-  topic_prefix: "ems/cdi-singapore"
-  interval_seconds: 300
+  topic_prefix: "ems"
+  interval_seconds: 10
   buffer_days: 7
 
 ui:

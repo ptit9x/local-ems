@@ -1,0 +1,40 @@
+{
+  "name": "ems-cloud",
+  "version": "0.1.0",
+  "private": true,
+  "description": "EMS Cloud Platform — Multi-tenant fleet management",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w apps/api",
+    "dev:dashboard": "npm run dev -w apps/dashboard",
+    "build": "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/dashboard",
+    "test": "npm run test -w apps/api",
+    "lint": "npm run lint -w apps/api",
+    "test:contracts": "node scripts/validate-contracts.cjs",
+    "test:smoke": "node scripts/smoke-demo.mjs",
+    "db:generate": "npm run db:generate -w apps/api",
+    "db:migrate": "npm run db:migrate -w apps/api",
+    "db:seed": "npm run db:seed -w apps/api",
+    "db:studio": "npm run db:studio -w apps/api",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down",
+    "docker:logs": "docker compose logs -f"
+  },
+  "devDependencies": {
+    "ajv": "^8.17.1",
+    "ajv-formats": "^3.0.1"
+  },
+  "overrides": {
+    "body-parser": "^2.3.0",
+    "multer": "^2.4.0",
+    "qs": "^6.16.1",
+    "lodash": "^4.18.1",
+    "deepmerge-ts": "8.0.2"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

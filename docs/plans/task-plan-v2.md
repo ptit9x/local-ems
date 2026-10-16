@@ -1,5 +1,7 @@
 # 📋 EMS Task Plan — Updated per CDI Q&A Requirements
 
+> Historical planning document. For current verified implementation status, see [implementation-status.md](implementation-status.md).
+
 **Cập nhật:** 30/09/2026 15:37  
 **Baseline:** [ems-mvp-plan.md](file:///Users/richard/vmo_bid_cdi/docs/ems-mvp-plan.md) + [cloud-erp-plan.md](file:///Users/richard/vmo_bid_cdi/docs/cloud-erp-plan.md)  
 **Trigger:** Câu trả lời Q&A từ CDI (28/09/2026)
@@ -14,7 +16,7 @@
 | **Phase 6: Multi-brand & Config** | ✅ Done | 9/9 | 0 |
 | **Phase 7: Cloud Sync & Buffer** | ✅ Done | 8/8 | 0 |
 | **Phase 8: OCPP & EV Failover** | ✅ Done | 8/8 | 0 |
-| **Phase 9: Multi-tenant Cloud** | 🔴 Mới | 0/12 | 12 |
+| **Phase 9: Multi-tenant Cloud** | 🟡 Simulator MVP; UI complete | Dashboard + core API/infra implemented | Production workflows remain |
 | **Phase 10: Production Hardening** | 🔴 Mới | 0/10 | 10 |
 
 ---
@@ -166,6 +168,8 @@
 > **Estimated:** 5-6 tuần  
 > **Dependency:** Phase 7 (MQTT sync data)
 
+> **Implementation update — 16/10/2026:** Phase 9C is complete at the responsive UI/demo level. The Dockerized Cloud simulator, tenant-scoped API, MQTT ingestion and core dashboard data path are operational. Phase 9 is still marked partial because production provisioning, database RLS, alert delivery and remote configuration writes are not complete. See [implementation-status.md](implementation-status.md) for the verified status.
+
 ### Epic 9A: Cloud Infrastructure
 
 | Task | Mô tả | Effort | Depends |
@@ -192,6 +196,21 @@
 | 9.10 | **Site detail page** — Energy flow diagram (giống local dashboard), historical charts (ECharts), device list | 3d | 9.9 |
 | 9.11 | **Alert management page** — Hiển thị active alerts, history, config rules | 2d | 9.7 |
 | 9.12 | **Remote config page** — Cập nhật control strategy, topology cho từng site. Push config xuống Local EMS qua MQTT | 3d | 9.5 |
+
+### Phase 9C UI implementation status
+
+| Scope | Status | Notes |
+|---|---|---|
+| Project setup and authentication | ✅ UI/MVP complete | Vite, React, TypeScript, Tailwind, shared shadcn-style components, Radix UI and React Query; login, refresh session and logout |
+| Responsive application shell | ✅ UI complete | Desktop, tablet and mobile sidebar/header/navigation layouts |
+| Tenant experience | ✅ UI demo complete | Tenant A uses the live simulator; Tenant B is explicitly labelled as a preview dataset |
+| Fleet and site monitoring | ✅ UI complete | Overview, Live Energy, Sites, Devices and ECharts visualizations |
+| Operations | ✅ UI complete | Commands, Alerts, Reports and notification panel; some actions remain demo-only until their APIs are completed |
+| Administration and support | ✅ UI complete | Settings, Profile Settings and Help Center |
+| Alert rule configuration and delivery | ⏳ Backend integration remaining | Rule CTA/UI exists; CRUD evaluation and email/webhook delivery are not implemented |
+| Remote configuration push | ⏳ Backend integration remaining | Settings UI exists; audited MQTT delivery to Local EMS is not implemented |
+
+Cloud UI screenshots: `docs/screenshots/cloud-login.png`, `cloud-overview.png`, `cloud-notifications.png`, `cloud-sites-tenant-b.png`, `cloud-profile.png`, and `cloud-help-center.png`.
 
 **Done when:**
 - [ ] Tạo 2 tenant (Customer A, Customer B) → mỗi tenant thấy site riêng, không thấy site của nhau

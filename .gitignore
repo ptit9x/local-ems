@@ -30,6 +30,7 @@ Thumbs.db
 *.test
 *.out
 coverage.html
+*.tsbuildinfo
 
 # Reference code — not part of the project
 references/

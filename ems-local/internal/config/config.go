@@ -153,9 +153,13 @@ type SyncConfig struct {
 	Enabled         bool   `yaml:"enabled"`
 	MQTTBroker      string `yaml:"mqtt_broker,omitempty"`
 	ClientID        string `yaml:"client_id,omitempty"`
+	Username        string `yaml:"username,omitempty"`
+	Password        string `yaml:"password,omitempty"`
 	TopicPrefix     string `yaml:"topic_prefix,omitempty"`
 	IntervalSeconds int    `yaml:"interval_seconds,omitempty"`
 	BufferDays      int    `yaml:"buffer_days,omitempty"`
+	CACertPath      string `yaml:"ca_cert_path,omitempty"`
+	Insecure        bool   `yaml:"insecure,omitempty"`
 }
 
 type PollingConfig struct {
@@ -582,6 +586,17 @@ func (c *Config) applyEnvOverrides() {
 	envInt("EMS_SIM_BATTERY_CAPACITY_WH", &c.Simulator.BatteryCapacityWh)
 	envInt("EMS_SIM_MAX_CHARGE_W", &c.Simulator.MaxChargeRateW)
 	envInt("EMS_SIM_MAX_DISCHARGE_W", &c.Simulator.MaxDischargeRateW)
+
+	// --- Sync (MQTT) ---
+	envBool("EMS_SYNC_ENABLED", &c.Sync.Enabled)
+	envStr("EMS_MQTT_BROKER", &c.Sync.MQTTBroker)
+	envStr("EMS_MQTT_CLIENT_ID", &c.Sync.ClientID)
+	envStr("EMS_MQTT_USERNAME", &c.Sync.Username)
+	envStr("EMS_MQTT_PASSWORD", &c.Sync.Password)
+	envStr("EMS_MQTT_TOPIC_PREFIX", &c.Sync.TopicPrefix)
+	envInt("EMS_SYNC_INTERVAL_SEC", &c.Sync.IntervalSeconds)
+	envStr("EMS_MQTT_CA_CERT", &c.Sync.CACertPath)
+	envBool("EMS_MQTT_INSECURE", &c.Sync.Insecure)
 }
 
 // --- env var helpers (stdlib only, no dependencies) ---

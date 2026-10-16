@@ -1,5 +1,7 @@
 # TECHNICAL & COMMERCIAL PROPOSAL
 
+> This proposal preserves the original delivery scope and estimates. For current verified implementation status, see [../plans/implementation-status.md](../plans/implementation-status.md).
+
 ## Energy Management System (EMS)
 ### Local EMS + Cloud Platform for Battery Energy Storage Systems
 

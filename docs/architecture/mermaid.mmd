@@ -1,0 +1,70 @@
+flowchart LR
+    %% Styling
+    classDef container fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
+    classDef hardware fill:#162238,stroke:#64748b,stroke-width:1.5px,color:#f8fafc
+    classDef localMod fill:#132338,stroke:#0284c7,stroke-width:1.5px,color:#f8fafc
+    classDef engineMod fill:#162032,stroke:#eab308,stroke-width:2px,color:#fde047
+    classDef storageMod fill:#1f1633,stroke:#a855f7,stroke-width:1.5px,color:#d8b4fe
+    classDef cloudMod fill:#162032,stroke:#10b981,stroke-width:1.5px,color:#f8fafc
+
+    subgraph SITE ["1. SITE HARDWARE — SINGAPORE"]
+        PM["Power Meter x3<br/>(Modbus TCP - Read Only)"]:::hardware
+        BMS["BMS x4<br/>(Modbus TCP - Read Only)"]:::hardware
+        PCS["PCS x24 — Lite-On<br/>(Modbus TCP - Bi-directional)"]:::hardware
+        EV["EV Charger x6<br/>(OCPP 1.6J - Bi-directional)"]:::hardware
+    end
+
+    subgraph LOCAL ["2. LOCAL EMS — GO (ON-PREMISE EDGE)"]
+        ADAPTER["Expandable Adapter Layer<br/>(Meter | BMS | PCS | EV Adapters)"]:::localMod
+        DAQ["Data Acquisition & In-Memory Cache<br/>(200ms Fast Poll | 5s Slow Poll | 5-min Aggregator)"]:::localMod
+
+        subgraph CCE ["Constraint Control Engine (Real-Time Loop)"]
+            P1["P1: Battery Protection (BMS Limits, Watchdog)"]
+            P2["P2: Grid Compliance (Zero Export / Import Limit)"]
+            P3["P3: Peak Shaving • TOU • EV DLM"]
+            P4["P4: Self-Consumption • Cloud Setpoints"]
+            P1 --> P2 --> P3 --> P4
+        end
+
+        DIST["Command Distributor & Hardware Watchdog<br/>(24x PCS kW/kVAr & 6x EV Current Limits)"]:::localMod
+        SQLITE[("SQLite (WAL Mode)<br/>7-Day Ring Buffer")]:::storageMod
+        MQTTSYNC["MQTT Sync Engine<br/>(Store-and-Forward / Rate-Limited Backfill)"]:::localMod
+        LOCALUI["Local Web Dashboard (:8080)<br/>(Local Monitoring & Manual Override)"]:::localMod
+    end
+
+    subgraph CLOUD ["3. EMS CLOUD"]
+        BROKER["MQTT Broker (TLS)<br/>(QoS 1 | LWT Heartbeat)"]:::cloudMod
+        NEST["NestJS Backend API<br/>(Ingestion, Commands, REST/WS)"]:::cloudMod
+        TSDB[("PostgreSQL / TimescaleDB<br/>(Time-Series Hypertables)")]:::storageMod
+        REACT["React Cloud Dashboard<br/>(Analytics & Remote Setpoints)"]:::cloudMod
+        ALERT["Alert Service<br/>(Offline & Fault Notifications)"]:::cloudMod
+    end
+
+    %% Hardware <-> Local Connections
+    PM -->|Modbus Poll| ADAPTER
+    BMS -->|Modbus Poll| ADAPTER
+    PCS <-->|Modbus Poll & Cmd| ADAPTER
+    EV <-->|OCPP 1.6J 2-Way| ADAPTER
+
+    %% Internal Local Connections
+    ADAPTER --> DAQ
+    DAQ --> CCE
+    CCE --> DIST
+    DIST -.->|Closed-Loop Commands| ADAPTER
+    DAQ -.->|5-min Aggregated Data| SQLITE
+    DIST --> SQLITE
+    DIST --> MQTTSYNC
+    SQLITE <-->|Read / Write Buffer| MQTTSYNC
+    SQLITE --> LOCALUI
+    LOCALUI --> MQTTSYNC
+
+    %% Local <-> Cloud Connections
+    MQTTSYNC ==>|MQTT Telemetry Up - 5m Sync & Backfill| BROKER
+    BROKER -.->|MQTT Setpoints Down - Validated| P4
+
+    %% Internal Cloud Connections
+    BROKER <--> NEST
+    NEST <--> TSDB
+    NEST <-->|REST API / WebSocket| REACT
+    NEST -.-> ALERT
+    ALERT -.-> REACT

@@ -1,6 +1,7 @@
 package sync
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -9,6 +10,8 @@ import (
 
 // TelemetryMessage is the aggregated message sent to Cloud every 5 minutes.
 type TelemetryMessage struct {
+	SchemaVersion     int       `json:"schema_version"`
+	MessageID         string    `json:"message_id"`
 	SiteID            string    `json:"site_id"`
 	Timestamp         time.Time `json:"timestamp"`
 	IntervalSec       int       `json:"interval_sec"`
@@ -78,7 +81,7 @@ func (c *CycleAccumulator) Add(cr cycle.CycleResult) {
 	// Assuming ESSW positive is discharge, negative is charge?
 	// The exact definition might depend, but let's assume ESSW > 0 means discharging, ESSW < 0 means charging.
 	// Since we don't have the duration for each cycle, if they run every second, power (W) = Energy (J/s).
-	// Let's assume typical 1-second cycles to calculate Wh. Wait, chargeWh isn't explicitly defined by cycle duration in this context, 
+	// Let's assume typical 1-second cycles to calculate Wh. Wait, chargeWh isn't explicitly defined by cycle duration in this context,
 	// but generally 1W over 1 second is 1/3600 Wh. Let's just accumulate the power values and divide by 3600 per count if they are 1s intervals.
 	// We'll assume the interval is 1s, or we can just accumulate `setpoint` in a simple way. Wait, we don't have enough info, maybe we just do `essSum / 3600`?
 	// Let's just do a naive approach: for each cycle (assumed 1 second), Wh = Power / 3600.
@@ -104,13 +107,15 @@ func (c *CycleAccumulator) Flush() TelemetryMessage {
 	}
 
 	msg := TelemetryMessage{
-		SiteID:      c.siteID,
-		Timestamp:   c.startTime,
-		IntervalSec: intervalSec,
-		MinSOC:      c.minSOC,
-		MaxSOC:      c.maxSOC,
-		MaxTempC:    c.maxTemp,
-		CycleCount:  c.count,
+		SchemaVersion: 1,
+		MessageID:     fmt.Sprintf("%s-%d", c.siteID, c.startTime.UnixNano()),
+		SiteID:        c.siteID,
+		Timestamp:     c.startTime,
+		IntervalSec:   intervalSec,
+		MinSOC:        c.minSOC,
+		MaxSOC:        c.maxSOC,
+		MaxTempC:      c.maxTemp,
+		CycleCount:    c.count,
 	}
 
 	if c.count > 0 {

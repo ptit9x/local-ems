@@ -71,6 +71,11 @@ model Site {
   heartbeats Heartbeat[]
   alerts    Alert[]
   commands  Command[]
+  failoverSessions FailoverSession[]
+  failoverEvents FailoverEvent[]
+  evSessions EVSession[]
+  configRevisions ConfigRevision[]
+  alertRules AlertRule[]
 
   @@index([tenantId])
   @@index([siteCode])
@@ -201,6 +206,91 @@ enum CommandStatus {
   ACKNOWLEDGED
   FAILED
   TIMED_OUT
+}
+
+enum FailoverState {
+  LOCAL_ACTIVE
+  CLOUD_TAKEOVER_PENDING
+  CLOUD_ACTIVE
+  HANDOVER_PENDING
+  FAULT
+}
+
+model FailoverSession {
+  id          String        @id @default(uuid())
+  siteId      String        @map("site_id")
+  state       FailoverState @default(LOCAL_ACTIVE)
+  controlOwner String       @default("local") @map("control_owner")
+  leaseEpoch  BigInt        @default(0) @map("lease_epoch")
+  reason      String?
+  startedAt   DateTime      @default(now()) @map("started_at")
+  endedAt     DateTime?     @map("ended_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  site        Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  events      FailoverEvent[]
+  @@index([siteId, startedAt])
+  @@map("failover_sessions")
+}
+
+model FailoverEvent {
+  id          String        @id @default(uuid())
+  siteId      String        @map("site_id")
+  sessionId   String?       @map("session_id")
+  state       FailoverState
+  controlOwner String       @map("control_owner")
+  leaseEpoch  BigInt        @map("lease_epoch")
+  reason      String?
+  payload     Json?
+  createdAt   DateTime      @default(now()) @map("created_at")
+  site        Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  session     FailoverSession? @relation(fields: [sessionId], references: [id], onDelete: SetNull)
+  @@index([siteId, createdAt])
+  @@map("failover_events")
+}
+
+model EVSession {
+  id          String   @id @default(uuid())
+  siteId      String   @map("site_id")
+  chargerId   String   @map("charger_id")
+  connectorId Int      @default(1) @map("connector_id")
+  status      String
+  activePowerW Int     @default(0) @map("active_power_w")
+  startedAt   DateTime @default(now()) @map("started_at")
+  endedAt     DateTime? @map("ended_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  @@index([siteId, chargerId, startedAt])
+  @@map("ev_sessions")
+}
+
+model ConfigRevision {
+  id          String   @id @default(uuid())
+  siteId      String   @map("site_id")
+  revision    Int
+  payload     Json
+  status      String   @default("PENDING")
+  result      Json?
+  createdAt   DateTime @default(now()) @map("created_at")
+  appliedAt   DateTime? @map("applied_at")
+  site        Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  @@unique([siteId, revision])
+  @@map("config_revisions")
+}
+
+model AlertRule {
+  id          String        @id @default(uuid())
+  siteId      String        @map("site_id")
+  code        String
+  severity    AlertSeverity @default(WARNING)
+  condition   Json
+  debounceSec Int           @default(0) @map("debounce_sec")
+  cooldownSec Int           @default(300) @map("cooldown_sec")
+  enabled     Boolean       @default(true)
+  createdAt   DateTime      @default(now()) @map("created_at")
+  updatedAt   DateTime      @updatedAt @map("updated_at")
+  site        Site          @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  @@unique([siteId, code])
+  @@map("alert_rules")
 }
 
 model RefreshToken {

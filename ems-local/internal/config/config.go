@@ -30,6 +30,11 @@ type Config struct {
 	UI          UIConfig          `yaml:"ui"`
 	Controllers ControllersConfig `yaml:"controllers"`
 	Simulator   SimulatorConfig   `yaml:"simulator"`
+	OCPP        OCPPConfig        `yaml:"ocpp"`
+}
+
+type OCPPConfig struct {
+	ListenAddress string `yaml:"listen_address"`
 }
 
 // --- Controller Configs (tunable via YAML + env vars) ---
@@ -40,7 +45,7 @@ type ControllersConfig struct {
 	PeakShaving    PeakShavingConfig    `yaml:"peak_shaving"`
 	TimeOfUse      TimeOfUseConfig      `yaml:"time_of_use"`
 	EVCharging     EVChargingConfig     `yaml:"ev_charging"`
-	Balancing      BalancingConfig       `yaml:"balancing"`
+	Balancing      BalancingConfig      `yaml:"balancing"`
 }
 
 type LimitDischargeConfig struct {
@@ -247,6 +252,9 @@ func (c *Config) applyDefaults() {
 	if c.Sync.BufferDays == 0 {
 		c.Sync.BufferDays = 7
 	}
+	if c.OCPP.ListenAddress == "" {
+		c.OCPP.ListenAddress = ":9000"
+	}
 
 	for i := range c.Devices.PCS {
 		if c.Devices.PCS[i].Brand == "" {
@@ -397,6 +405,16 @@ func (c *Config) validate() error {
 		}
 	}
 	for _, d := range c.Devices.EVCharger {
+		if strings.EqualFold(d.Protocol, "ocpp") {
+			if d.ID == "" {
+				return fmt.Errorf("device missing id")
+			}
+			if seen[d.ID] {
+				return fmt.Errorf("duplicate device id: %s", d.ID)
+			}
+			seen[d.ID] = true
+			continue
+		}
 		if err := checkDevice(d.ID, d.Host, d.Port); err != nil {
 			return err
 		}

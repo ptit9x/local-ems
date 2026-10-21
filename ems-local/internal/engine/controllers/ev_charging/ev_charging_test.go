@@ -14,6 +14,36 @@ func TestEVCharging_Name(t *testing.T) {
 	}
 }
 
+func TestAllocateLimitsFairShareAndDemandCap(t *testing.T) {
+	c := New(20_000)
+	limits := c.AllocateLimits(5_000, []ChargerDemand{
+		{ID: "small", DemandW: 3_000, Online: true, Charging: true},
+		{ID: "large-a", DemandW: 20_000, Online: true, Charging: true},
+		{ID: "large-b", DemandW: 20_000, Online: true, Charging: true},
+		{ID: "offline", DemandW: 20_000, Charging: true},
+	})
+	if limits["small"] != 3_000 || limits["large-a"] != 6_000 || limits["large-b"] != 6_000 {
+		t.Fatalf("unexpected fair-share allocation: %#v", limits)
+	}
+	if limits["offline"] != 0 {
+		t.Fatalf("offline charger received power: %#v", limits)
+	}
+}
+
+func TestUpdateConfigValidationAndAtomicApply(t *testing.T) {
+	c := New(20_000)
+	if err := c.UpdateConfig(0, true); err == nil {
+		t.Fatal("expected invalid limit to be rejected")
+	}
+	if err := c.UpdateConfig(10_000, true); err != nil {
+		t.Fatal(err)
+	}
+	limits := c.AllocateLimits(5_000, []ChargerDemand{{ID: "ev", DemandW: 20_000, Online: true, Charging: true}})
+	if limits["ev"] != 5_000 {
+		t.Fatalf("updated limit not applied: %#v", limits)
+	}
+}
+
 func TestEVCharging_Disabled(t *testing.T) {
 	c := New(10000)
 	c.SetEnabled(false)

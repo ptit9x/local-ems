@@ -22,10 +22,13 @@ func TestFailoverManager(t *testing.T) {
 	})
 
 	// Normal -> Active
-	fm.HandleCloudMessage("takeover", []byte(`{}`))
+	fm.HandleCloudMessage("takeover", []byte(`{"lease_epoch":2}`))
 	if fm.State() != FailoverActive {
 		t.Errorf("expected state active, got %v", fm.State())
 	}
+
+	// A stale lease must not override the current owner.
+	fm.HandleCloudMessage("handover_complete", []byte(`{"lease_epoch":1}`))
 
 	// Active -> Recovery
 	err := fm.RequestRecovery()
@@ -55,7 +58,7 @@ func TestFailoverManager(t *testing.T) {
 	}
 
 	// Recovery -> Normal
-	fm.HandleCloudMessage("handover_complete", []byte(`{}`))
+	fm.HandleCloudMessage("handover_complete", []byte(`{"lease_epoch":2}`))
 	if fm.State() != FailoverNormal {
 		t.Errorf("expected state normal, got %v", fm.State())
 	}
@@ -72,5 +75,26 @@ func TestFailoverManager(t *testing.T) {
 		if stateChanges[2] != FailoverNormal {
 			t.Errorf("expected third change to normal")
 		}
+	}
+}
+
+func TestStartupRecoveryDoesNotClaimLocalLease(t *testing.T) {
+	pub := emsSync.NewStubPublisher()
+	pub.Connect()
+	fm := NewFailoverManager(pub, "test-site", "ems")
+	fm.BeginStartupRecovery()
+	if owner := fm.ControlOwner(); owner != "none" {
+		t.Fatalf("owner=%s", owner)
+	}
+	if err := fm.RequestRecovery(); err != nil {
+		t.Fatal(err)
+	}
+	fm.HandleCloudMessage("takeover", []byte(`{"lease_epoch":7}`))
+	if owner := fm.ControlOwner(); owner != "cloud" {
+		t.Fatalf("owner=%s", owner)
+	}
+	fm.HandleCloudMessage("handover_complete", []byte(`{"lease_epoch":6}`))
+	if owner := fm.ControlOwner(); owner != "cloud" {
+		t.Fatal("stale handover stole the lease")
 	}
 }

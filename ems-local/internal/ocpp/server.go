@@ -10,6 +10,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ type CentralSystem struct {
 	connections map[string]*ChargePoint // chargePointId → connection
 	handler     MessageHandler
 	server      *http.Server
+	listener    net.Listener
 }
 
 type ChargePoint struct {
@@ -33,6 +35,35 @@ type ChargePoint struct {
 	mu              sync.Mutex
 	pending         map[string]chan []byte // uniqueID → response channel
 	txCounter       int
+	ActivePowerW    int
+	EnergyWh        int
+	CurrentL1A      float64
+	CurrentL2A      float64
+	CurrentL3A      float64
+	TransactionID   int
+}
+
+type ChargePointSnapshot struct {
+	ID              string
+	Status          string
+	ConnectorStatus map[int]string
+	LastHeartbeat   time.Time
+	ActivePowerW    int
+	EnergyWh        int
+	CurrentL1A      float64
+	CurrentL2A      float64
+	CurrentL3A      float64
+	TransactionID   int
+}
+
+func (cp *ChargePoint) Snapshot() ChargePointSnapshot {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	connectors := make(map[int]string, len(cp.ConnectorStatus))
+	for key, value := range cp.ConnectorStatus {
+		connectors[key] = value
+	}
+	return ChargePointSnapshot{ID: cp.ID, Status: cp.Status, ConnectorStatus: connectors, LastHeartbeat: cp.LastHeartbeat, ActivePowerW: cp.ActivePowerW, EnergyWh: cp.EnergyWh, CurrentL1A: cp.CurrentL1A, CurrentL2A: cp.CurrentL2A, CurrentL3A: cp.CurrentL3A, TransactionID: cp.TransactionID}
 }
 
 type MessageHandler interface {
@@ -61,12 +92,28 @@ func NewCentralSystem(addr string, handler MessageHandler) *CentralSystem {
 }
 
 func (cs *CentralSystem) Start() error {
+	listener, err := net.Listen("tcp", cs.server.Addr)
+	if err != nil {
+		return err
+	}
+	cs.mu.Lock()
+	cs.listener = listener
+	cs.mu.Unlock()
 	go func() {
-		if err := cs.server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		if err := cs.server.Serve(listener); err != nil && err != http.ErrServerClosed {
 			log.Printf("CentralSystem server error: %v", err)
 		}
 	}()
 	return nil
+}
+
+func (cs *CentralSystem) Address() string {
+	cs.mu.RLock()
+	defer cs.mu.RUnlock()
+	if cs.listener != nil {
+		return cs.listener.Addr().String()
+	}
+	return cs.server.Addr
 }
 
 func (cs *CentralSystem) Stop() error {
@@ -141,7 +188,7 @@ func (cp *ChargePoint) readLoop(cs *CentralSystem) {
 			}
 			return
 		}
-		
+
 		var msg []json.RawMessage
 		if err := json.Unmarshal(payload, &msg); err != nil {
 			log.Printf("ChargePoint %s sent invalid JSON: %v", cp.ID, err)
@@ -177,7 +224,7 @@ func (cp *ChargePoint) readLoop(cs *CentralSystem) {
 			}
 
 			responsePayload := cs.handleAction(cp, action, msg[3])
-			
+
 			// Send response
 			res := []interface{}{MessageTypeCallResult, msgID, responsePayload}
 			resBytes, _ := json.Marshal(res)
@@ -191,16 +238,20 @@ func (cs *CentralSystem) handleAction(cp *ChargePoint, action string, payload js
 	case "BootNotification":
 		var req BootNotificationReq
 		json.Unmarshal(payload, &req)
+		cp.mu.Lock()
 		cp.Vendor = req.ChargePointVendor
 		cp.Model = req.ChargePointModel
 		cp.LastHeartbeat = time.Now()
+		cp.mu.Unlock()
 		if cs.handler != nil {
 			return cs.handler.OnBootNotification(cp.ID, req)
 		}
 		return BootNotificationConf{CurrentTime: time.Now().Format(time.RFC3339), Interval: 300, Status: "Accepted"}
-	
+
 	case "Heartbeat":
+		cp.mu.Lock()
 		cp.LastHeartbeat = time.Now()
+		cp.mu.Unlock()
 		if cs.handler != nil {
 			return cs.handler.OnHeartbeat(cp.ID)
 		}
@@ -209,10 +260,14 @@ func (cs *CentralSystem) handleAction(cp *ChargePoint, action string, payload js
 	case "StatusNotification":
 		var req StatusNotificationReq
 		json.Unmarshal(payload, &req)
+		cp.mu.Lock()
 		cp.ConnectorStatus[req.ConnectorId] = req.Status
 		if req.ConnectorId == 0 {
 			cp.Status = req.Status
+		} else if req.ConnectorId == 1 {
+			cp.Status = req.Status
 		}
+		cp.mu.Unlock()
 		if cs.handler != nil {
 			return cs.handler.OnStatusNotification(cp.ID, req)
 		}
@@ -221,6 +276,7 @@ func (cs *CentralSystem) handleAction(cp *ChargePoint, action string, payload js
 	case "MeterValues":
 		var req MeterValuesReq
 		json.Unmarshal(payload, &req)
+		cp.applyMeterValues(req)
 		if cs.handler != nil {
 			return cs.handler.OnMeterValues(cp.ID, req)
 		}
@@ -230,14 +286,27 @@ func (cs *CentralSystem) handleAction(cp *ChargePoint, action string, payload js
 		var req StartTransactionReq
 		json.Unmarshal(payload, &req)
 		if cs.handler != nil {
-			return cs.handler.OnStartTransaction(cp.ID, req)
+			conf := cs.handler.OnStartTransaction(cp.ID, req)
+			cp.mu.Lock()
+			cp.TransactionID = conf.TransactionId
+			cp.Status = "Charging"
+			cp.mu.Unlock()
+			return conf
 		}
 		cp.txCounter++
+		cp.mu.Lock()
+		cp.TransactionID = cp.txCounter
+		cp.Status = "Charging"
+		cp.mu.Unlock()
 		return StartTransactionConf{TransactionId: cp.txCounter, IdTagInfo: IdTagInfo{Status: "Accepted"}}
 
 	case "StopTransaction":
 		var req StopTransactionReq
 		json.Unmarshal(payload, &req)
+		cp.mu.Lock()
+		cp.TransactionID = 0
+		cp.Status = "Finishing"
+		cp.mu.Unlock()
 		if cs.handler != nil {
 			return cs.handler.OnStopTransaction(cp.ID, req)
 		}
@@ -245,6 +314,40 @@ func (cs *CentralSystem) handleAction(cp *ChargePoint, action string, payload js
 	}
 
 	return struct{}{}
+}
+
+func (cp *ChargePoint) applyMeterValues(req MeterValuesReq) {
+	cp.mu.Lock()
+	defer cp.mu.Unlock()
+	if req.TransactionId != nil {
+		cp.TransactionID = *req.TransactionId
+	}
+	for _, group := range req.MeterValue {
+		for _, sample := range group.SampledValue {
+			value, err := strconv.ParseFloat(sample.Value, 64)
+			if err != nil {
+				continue
+			}
+			switch sample.Measurand {
+			case "Power.Active.Import", "Power.Active.Import.Register":
+				cp.ActivePowerW = int(value)
+			case "Energy.Active.Import.Register":
+				if sample.Unit == "kWh" {
+					value *= 1000
+				}
+				cp.EnergyWh = int(value)
+			case "Current.Import":
+				switch sample.Phase {
+				case "L1":
+					cp.CurrentL1A = value
+				case "L2":
+					cp.CurrentL2A = value
+				case "L3":
+					cp.CurrentL3A = value
+				}
+			}
+		}
+	}
 }
 
 func upgradeWebSocket(w http.ResponseWriter, r *http.Request) (net.Conn, error) {

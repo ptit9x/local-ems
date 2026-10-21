@@ -1,6 +1,6 @@
 # ⚡ Local EMS — On-Premise Energy Management System
 
-Constraint-based Battery Energy Storage System (BESS) controller written in Go. It runs the control loop independently of Cloud and buffers telemetry locally when MQTT is unavailable. The executable currently supports simulation mode only; physical-site commissioning is not yet enabled in `cmd/ems-core`.
+Constraint-based Battery Energy Storage System (BESS) controller written in Go. It runs the control loop independently of Cloud and buffers telemetry locally when MQTT is unavailable. `cmd/ems-core` supports both simulation and config-driven physical-device runtime; real equipment still requires vendor register maps, credentials, calibration and SAT.
 
 ## Quick Start
 
@@ -20,6 +20,7 @@ go run ./cmd/ems-core --simulate
 ```
 cmd/ems-core/main.go        ← Entry point
 internal/
+├── adapters/                ← AdapterFactory: type/protocol/vendor selection + registry build
 ├── engine/                  ← Core: Constraint-based Controller Chain
 │   ├── controllers/         ←   6 independent controllers (balancing, peak shaving, ...)
 │   ├── cycle/               ←   1-second control loop
@@ -39,6 +40,15 @@ internal/
 web/                         ← HTML/CSS/JS source (embedded via go:embed)
 config/                      ← YAML configs & PCS register profiles
 ```
+
+`internal/adapters.Factory` selects implementations by device type, protocol and
+vendor profile. It builds the registry transactionally, exposes normalized data-point
+snapshots, tracks connection health and owns adapter shutdown. It supports Meter/BMS
+Modbus adapters, PCS built-in or YAML vendor profiles, and EV Modbus/OCPP adapters.
+`cmd/ems-core` now polls the factory-built registry, feeds normalized state into the
+aggregator, and dispatches PCS/EV commands through a lease-gated runtime with bounded
+retry and duplicate EV-limit suppression. Hardware readiness still depends on the
+vendor register maps, OCPP endpoint configuration and physical commissioning.
 
 The simulator supports time-varying solar/load behavior and a deterministic scenario at `config/scenarios/full-demo.yaml`. The CDI demo topology contains 4 BMS, 24 PCS, 3 meters, and 6 EV chargers.
 

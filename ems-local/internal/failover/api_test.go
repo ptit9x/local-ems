@@ -35,8 +35,8 @@ func TestAPI(t *testing.T) {
 		t.Fatalf("failed to decode response: %v", err)
 	}
 
-	if resp.State != "normal" {
-		t.Errorf("expected state normal, got %s", resp.State)
+	if resp.State != "LOCAL_ACTIVE" {
+		t.Errorf("expected state LOCAL_ACTIVE, got %s", resp.State)
 	}
 	if resp.SiteID != "test-site" {
 		t.Errorf("expected site_id test-site, got %s", resp.SiteID)

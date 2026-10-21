@@ -323,3 +323,13 @@ func TestLoadCDISingaporeConfig(t *testing.T) {
 	}
 }
 
+func TestOCPPChargerDoesNotRequireModbusAddress(t *testing.T) {
+	cfg := DefaultDev()
+	cfg.Devices.EVCharger = []EVChargerDeviceConfig{{ID: "ev-ocpp-1", Protocol: "ocpp"}}
+	if err := cfg.validate(); err != nil {
+		t.Fatalf("OCPP charger should connect inbound without a Modbus host/port: %v", err)
+	}
+	if cfg.OCPP.ListenAddress == "" {
+		t.Fatal("expected default OCPP listen address")
+	}
+}

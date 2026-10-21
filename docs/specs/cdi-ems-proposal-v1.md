@@ -51,7 +51,20 @@ The solution consists of two tiers:
 
 Based on the provided architecture diagram and Q&A discussions, the system encompasses:
 
-![Architecture Diagram](/Users/richard/.gemini/antigravity/brain/a41ed636-d604-4a4f-9395-6f4b303484a0/architecture_diagram.png)
+![Phase 2 Architecture](../architecture/architecture_simple.png)
+
+The detailed target architecture, including the logical backup OCPP path and vendor
+capability gate, is maintained in [Mermaid source](../architecture/mermaid.mmd) and
+[full-size PNG](../architecture/architecture.png).
+
+The Local device boundary uses a config-driven `AdapterFactory` and transactional
+`DeviceRegistry`. Selection is based on device type, protocol and vendor profile:
+Meter/BMS use Modbus adapters, PCS uses built-in or YAML register profiles, and EV
+uses Modbus or OCPP. Adapters expose a normalized snapshot and health model to data
+acquisition. The factory is implemented; production runtime polling/command wiring
+and physical commissioning remain Phase 2 work. The registry runtime, OCPP meter and
+session feedback, EV DLM command dispatch, retry/idempotency and startup lease guard
+are implemented and covered by six-charger Local/Cloud integration tests.
 
 ### 2.2 Hardware Scope (Per Site)
 
@@ -181,6 +194,7 @@ READ → SCHEDULE → ADVISE → RESOLVE → DISTRIBUTE → WRITE
 | Module | Deliverables | Status |
 |---|---|---|
 | **Data Acquisition** | Modbus TCP polling from 3 Power Meters, 4 BMS, 24 PCS at configured intervals (200ms / 5s) | 🟡 70% existing — extend for multi-rate polling |
+| **AdapterFactory + DeviceRegistry** | Config-driven type/protocol/vendor selection; Meter/BMS Modbus, PCS profile and EV Modbus/OCPP adapters; normalized snapshot/health | ✅ Software done — runtime polling and lease-gated commands integrated; commissioning remains |
 | **PCS Driver Architecture** | Plugin-based driver interface supporting Master command mode and Individual command mode | ✅ Done — `PCSDriver` interface + `GenericPCSDriver` + YAML loader |
 | **Control Engine** | Configurable strategy execution: Balancing, Peak Shaving, SOC Protection, Grid Export Limit | ✅ Done |
 | **Multi-PCS Distributor** | Split aggregated power setpoint across 24 PCS units (Equal, Round-robin, Group modes) | ✅ Done |

@@ -26,6 +26,16 @@ This monorepo contains the CDI Energy Management System (EMS): a Go service that
 
 Open the [full-size architecture diagram](docs/architecture/architecture.png) or view its [Mermaid source](docs/architecture/mermaid.mmd).
 
+The detailed technical diagram is generated from Mermaid (`make architecture`).
+The README overview is an icon-rich stakeholder infographic whose regeneration
+specification is stored in `docs/architecture/architecture_simple.prompt.md`.
+The technical view expands the Local adapter boundary into `AdapterFactory`,
+`DeviceRegistry`, protocol/vendor selection, normalized snapshots and health. The
+factory and registry-driven runtime polling/command orchestration are implemented.
+Physical commissioning, vendor endpoint switching and site SAT remain external gates.
+The dashed backup OCPP path is the Phase 2 logical design; physical endpoint
+switching remains subject to EV charger vendor capability confirmation before SAT.
+
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ EMS Cloud                                                   │

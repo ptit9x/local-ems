@@ -2,6 +2,7 @@ import { Injectable, Logger, OnModuleInit, OnModuleDestroy } from '@nestjs/commo
 import { ConfigService } from '@nestjs/config';
 import { connect, MqttClient } from 'mqtt';
 import { TelemetryService } from './telemetry.service';
+import { FailoverService } from '../failover/failover.service';
 
 /**
  * MqttIngestionService subscribes to MQTT telemetry topics
@@ -18,6 +19,7 @@ export class MqttIngestionService implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly config: ConfigService,
     private readonly telemetryService: TelemetryService,
+    private readonly failoverService: FailoverService,
   ) {
     this.topicPrefix = this.config.get<string>('MQTT_TOPIC_PREFIX', 'ems');
   }
@@ -90,6 +92,7 @@ export class MqttIngestionService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.subscribe(`${this.topicPrefix}/+/heartbeat`, { qos: 0 });
+    this.client.subscribe(`${this.topicPrefix}/+/failover/recovery`, { qos: 1 });
   }
 
   private async handleMessage(topic: string, payload: Buffer) {
@@ -98,7 +101,8 @@ export class MqttIngestionService implements OnModuleInit, OnModuleDestroy {
     if (parts.length < 3) return;
 
     const isCommandAck = parts.slice(-2).join('/') === 'command/ack';
-    const siteCode = parts[parts.length - (isCommandAck ? 3 : 2)];
+    const isFailoverRecovery = parts.slice(-2).join('/') === 'failover/recovery';
+    const siteCode = parts[parts.length - (isCommandAck || isFailoverRecovery ? 3 : 2)];
     const messageType = parts[parts.length - 1];
 
     if (messageType === 'telemetry') {
@@ -108,10 +112,20 @@ export class MqttIngestionService implements OnModuleInit, OnModuleDestroy {
       }
       await this.telemetryService.ingest(siteCode, data);
     } else if (messageType === 'heartbeat') {
-      await this.telemetryService.heartbeat(siteCode, JSON.parse(payload.toString()));
+      const data = JSON.parse(payload.toString());
+      await this.telemetryService.heartbeat(siteCode, data);
+      if (data.schema_version === 2 && data.control_owner === 'local') {
+        const command = await this.failoverService.recoverOnHeartbeat(siteCode);
+        if (command) await this.publish(`${this.topicPrefix}/${siteCode}/failover/control`, command);
+      }
     } else if (isCommandAck) {
       const data = JSON.parse(payload.toString());
       await this.telemetryService.acknowledgeCommand(siteCode, data);
+    } else if (isFailoverRecovery) {
+      const data = JSON.parse(payload.toString());
+      if (data.schema_version !== 2 || data.site_id !== siteCode || !Number.isSafeInteger(data.lease_epoch)) throw new Error('invalid recovery contract');
+      const command = await this.failoverService.completeHandover(siteCode, BigInt(data.lease_epoch));
+      if (command) await this.publish(`${this.topicPrefix}/${siteCode}/failover/control`, command);
     }
   }
 
@@ -125,6 +139,10 @@ export class MqttIngestionService implements OnModuleInit, OnModuleDestroy {
   private async markOfflineSites() {
     const cutoff = new Date(Date.now() - 90000);
     const sites = await this.telemetryService.findStaleSites(cutoff);
-    for (const site of sites) await this.telemetryService.markOffline(site.id);
+    for (const site of sites) {
+      await this.telemetryService.markOffline(site.id);
+      const command = await this.failoverService.beginTakeover(site.id, site.siteCode, 'No heartbeat received for 90 seconds');
+      if (command) await this.publish(`${this.topicPrefix}/${site.siteCode}/failover/control`, command);
+    }
   }
 }

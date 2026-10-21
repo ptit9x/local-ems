@@ -30,11 +30,15 @@ flowchart TD
         EV["EV Charger ×6\n(OCPP 1.6J)"]
 
         subgraph ems["Local EMS (Go Binary)"]
-            subgraph adapters["Adapter Layer (Expandable)"]
+            subgraph adapters["AdapterFactory + DeviceRegistry (Expandable)"]
+                FACTORY["Select: type / protocol / vendor"]
                 AD_PM["MeterAdapter"]
                 AD_BMS["BMSAdapter"]
                 AD_PCS["PCSAdapter\n(per-brand plugin)"]
                 AD_EV["EVAdapter\n(Modbus / OCPP)"]
+                NORMALIZED["Normalized Snapshot + Health"]
+                FACTORY --> AD_PM & AD_BMS & AD_PCS & AD_EV
+                AD_PM & AD_BMS & AD_PCS & AD_EV --> NORMALIZED
             end
             DA["Data Acquisition\n200ms / 5s polling"]
             CE["Control Engine\nConstraint-based"]
@@ -65,9 +69,12 @@ flowchart TD
 
 > [!IMPORTANT]
 > **Thay đổi chính trong kiến trúc:**
-> - Adapter Layer trở thành **layer riêng biệt**, expandable cho multi-vendor
+> - Adapter Layer là **`AdapterFactory + DeviceRegistry`** riêng biệt: chọn adapter
+>   theo type/protocol/vendor, rồi chuẩn hóa snapshot và health cho runtime. Factory
+>   đã triển khai và được wire vào polling/command runtime của `cmd/ems-core`.
 > - PCS Distributor luôn ở mode **Individual** (gửi lệnh cho từng PCS)
-> - Cloud failover Phase 1 chỉ là **Alert** (không takeover control)
+> - Cloud failover Phase 2 có lease/state machine và backup OCPP safe mode; đường
+>   chuyển endpoint vật lý vẫn phụ thuộc capability của charger/vendor trước SAT.
 
 ---
 
@@ -229,10 +236,11 @@ gantt
 | A.3 | **PCS Simulator 24-unit** | Mở rộng [simulator.go](file:///Users/richard/vmo_bid_cdi/internal/simulator/simulator.go) — 24 PCS individual mode (Lite-On profile), mỗi unit có state riêng (SOC, power, fault) | 3d | A.2 | ✅ Done |
 | A.4 | **Distributor stress test** | Test concurrent write 24 PCS, measure cycle time, validate graceful degradation | 2d | A.3 | 🔜 Next |
 | A.5 | **DeviceAdapter generalization** | Refactor [device.go](file:///Users/richard/vmo_bid_cdi/internal/devices/device.go) — thêm `DeviceAdapter` interface cấp cao hơn, support hot-swap protocol (Modbus ↔ API) | 3d | A.1 | ✅ Done |
-| A.6 | **BMS/Meter adapter refactor** | Áp dụng pattern expandable cho BMS và Meter adapters | 2d | A.5 | ⬜ |
-| A.7 | **EV Charger dual-mode** | Đảm bảo EV adapter chạy cả Modbus và OCPP mode ([evcharger_ocpp.go](file:///Users/richard/vmo_bid_cdi/internal/devices/evcharger_ocpp.go)) | 2d | A.5 | ⬜ |
+| A.6 | **BMS/Meter adapter refactor** | AdapterFactory tạo BMS/Meter Modbus adapters và đưa vào DeviceRegistry với snapshot/health chuẩn hóa | 2d | A.5 | ✅ Done |
+| A.7 | **EV Charger dual-mode** | AdapterFactory chọn EV Modbus hoặc OCPP theo config; Local OCPP central được inject khi tạo OCPP adapter | 2d | A.5 | ✅ Done |
 | A.8 | **Config hot-reload** | Watch config file changes, device IP/brand thay đổi không cần restart | 3d | A.5 | ⬜ |
-| A.9 | **Full simulator demo** | 4 BMS + 24 PCS (Lite-On) + 6 EV + 3 Meter chạy trên simulator, dashboard live | 2d | All above | ⬜ |
+| A.9 | **Registry runtime orchestration** | Wire DeviceRegistry vào `cmd/ems-core` cho polling, normalized state cache và command dispatch thay simulator/fixed manager | 4d | A.6, A.7 | ✅ Done |
+| A.10 | **Full simulator demo** | 4 BMS + 24 PCS (Lite-On) + 6 EV + 3 Meter chạy trên simulator, dashboard live | 2d | A.1–A.7 | ✅ Done |
 
 **Effort:** ~22 man-days (~10d done, ~12d remaining)
 

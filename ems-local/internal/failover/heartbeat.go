@@ -12,11 +12,15 @@ import (
 
 // HeartbeatMessage is sent every 30s to Cloud.
 type HeartbeatMessage struct {
-	SiteID    string          `json:"site_id"`
-	Timestamp time.Time       `json:"timestamp"`
-	Status    string          `json:"status"` // "online", "degraded"
-	EVStates  []EVChargerInfo `json:"ev_states"`
-	Uptime    int64           `json:"uptime_seconds"`
+	SchemaVersion int             `json:"schema_version"`
+	SiteID        string          `json:"site_id"`
+	Timestamp     time.Time       `json:"timestamp"`
+	Status        string          `json:"status"` // "online", "degraded"
+	EVStates      []EVChargerInfo `json:"ev_states"`
+	Uptime        int64           `json:"uptime_seconds"`
+	ControlOwner  string          `json:"control_owner"`
+	FailoverState string          `json:"failover_state"`
+	LeaseEpoch    uint64          `json:"lease_epoch"`
 }
 
 type EVChargerInfo struct {
@@ -29,15 +33,16 @@ type EVChargerInfo struct {
 
 // HeartbeatPublisher sends periodic heartbeats to Cloud.
 type HeartbeatPublisher struct {
-	publisher   emsSync.Publisher
-	siteID      string
-	topicPrefix string
-	interval    time.Duration
-	startTime   time.Time
-	evProvider  func() []EVChargerInfo
-	done        chan struct{}
-	wg          sync.WaitGroup
-	mu          sync.RWMutex
+	publisher        emsSync.Publisher
+	siteID           string
+	topicPrefix      string
+	interval         time.Duration
+	startTime        time.Time
+	evProvider       func() []EVChargerInfo
+	failoverProvider func() (string, string, uint64)
+	done             chan struct{}
+	wg               sync.WaitGroup
+	mu               sync.RWMutex
 }
 
 func NewHeartbeatPublisher(pub emsSync.Publisher, siteID, topicPrefix string, interval time.Duration) *HeartbeatPublisher {
@@ -57,7 +62,14 @@ func (h *HeartbeatPublisher) SetEVProvider(fn func() []EVChargerInfo) {
 	h.evProvider = fn
 }
 
+func (h *HeartbeatPublisher) SetFailoverProvider(fn func() (string, string, uint64)) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.failoverProvider = fn
+}
+
 func (h *HeartbeatPublisher) Start(ctx context.Context) {
+	h.publish() // announce recovery immediately; do not wait for the first 30s tick
 	h.wg.Add(1)
 	go func() {
 		defer h.wg.Done()
@@ -80,6 +92,7 @@ func (h *HeartbeatPublisher) Start(ctx context.Context) {
 func (h *HeartbeatPublisher) publish() {
 	h.mu.RLock()
 	provider := h.evProvider
+	failoverProvider := h.failoverProvider
 	h.mu.RUnlock()
 
 	var evStates []EVChargerInfo
@@ -89,12 +102,20 @@ func (h *HeartbeatPublisher) publish() {
 		evStates = []EVChargerInfo{}
 	}
 
+	owner, failoverState, epoch := "local", LocalActive.String(), uint64(0)
+	if failoverProvider != nil {
+		owner, failoverState, epoch = failoverProvider()
+	}
 	msg := HeartbeatMessage{
-		SiteID:    h.siteID,
-		Timestamp: time.Now(),
-		Status:    "online",
-		EVStates:  evStates,
-		Uptime:    int64(time.Since(h.startTime).Seconds()),
+		SchemaVersion: 2,
+		SiteID:        h.siteID,
+		Timestamp:     time.Now(),
+		Status:        "online",
+		EVStates:      evStates,
+		Uptime:        int64(time.Since(h.startTime).Seconds()),
+		ControlOwner:  owner,
+		FailoverState: failoverState,
+		LeaseEpoch:    epoch,
 	}
 
 	data, err := json.Marshal(msg)

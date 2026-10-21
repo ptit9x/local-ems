@@ -17,7 +17,7 @@ func TestHeartbeatPublisher(t *testing.T) {
 	interval := 50 * time.Millisecond
 
 	hb := NewHeartbeatPublisher(pub, siteID, topicPrefix, interval)
-	
+
 	evStates := []EVChargerInfo{
 		{
 			ID:               "ev-1",
@@ -33,9 +33,9 @@ func TestHeartbeatPublisher(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	
+
 	hb.Start(ctx)
-	
+
 	time.Sleep(120 * time.Millisecond)
 	hb.Stop()
 
@@ -48,15 +48,18 @@ func TestHeartbeatPublisher(t *testing.T) {
 	for _, msg := range messages {
 		if msg.Topic == "ems/test-site/heartbeat" {
 			foundTopic = true
-			
+
 			var hMsg HeartbeatMessage
 			err := json.Unmarshal(msg.Payload, &hMsg)
 			if err != nil {
 				t.Fatalf("failed to unmarshal payload: %v", err)
 			}
-			
+
 			if hMsg.SiteID != "test-site" {
 				t.Errorf("expected site_id test-site, got %s", hMsg.SiteID)
+			}
+			if hMsg.SchemaVersion != 2 || hMsg.ControlOwner != "local" || hMsg.FailoverState != "LOCAL_ACTIVE" {
+				t.Errorf("expected heartbeat v2 local ownership, got version=%d owner=%s state=%s", hMsg.SchemaVersion, hMsg.ControlOwner, hMsg.FailoverState)
 			}
 			if hMsg.Status != "online" {
 				t.Errorf("expected status online, got %s", hMsg.Status)

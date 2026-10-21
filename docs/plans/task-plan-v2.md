@@ -12,10 +12,10 @@
 
 | Phase | Trạng thái | Tasks Done | Tasks Remaining |
 |---|---|---|---|
-| Phase 0-5 (MVP cũ) | ✅ Gần hoàn tất | 28/30 | 2 (Task 5.10, 4.2) |
+| Phase 0-5 (MVP cũ + AdapterFactory bổ sung) | ✅ Software complete | 32/32 | Physical commissioning remains |
 | **Phase 6: Multi-brand & Config** | ✅ Done | 9/9 | 0 |
 | **Phase 7: Cloud Sync & Buffer** | ✅ Done | 8/8 | 0 |
-| **Phase 8: OCPP & EV Failover** | ✅ Done | 8/8 | 0 |
+| **Phase 8: OCPP & EV Failover** | ✅ Software core complete | 8/8 tasks implemented; six-charger Local/Cloud OCPP integration tests and startup split-brain guard pass | Full Docker process-kill evidence, vendor endpoint gate, HIL and SAT remain |
 | **Phase 9: Multi-tenant Cloud** | 🟡 Simulator MVP; UI complete | Dashboard + core API/infra implemented | Production workflows remain |
 | **Phase 10: Production Hardening** | 🔴 Mới | 0/10 | 10 |
 
@@ -46,6 +46,8 @@
 - [x] REST API + WebSocket for dashboard
 - [x] Health watchdog
 - [x] Device Plugin Architecture (Device, ControllableDevice interfaces)
+- [x] Config-driven AdapterFactory + transactional DeviceRegistry build (type/protocol/vendor selection; Meter/BMS Modbus, PCS profile, EV Modbus/OCPP)
+- [x] Wire DeviceRegistry into `cmd/ems-core` acquisition and command orchestration
 - [x] EV Charger Adapter (Modbus)
 - [x] PCS Profile registry (generic/sungrow/sinexcel)
 - [x] EV DLM Controller
@@ -59,8 +61,9 @@
 
 ### Còn lại từ plan cũ:
 
-- [ ] **Task 5.10**: EV active control — auto WriteMaxPower from DLM controller
-- [ ] **Task 4.2**: MQTT sync module (→ chuyển sang Phase 7)
+- [x] **Task 5.10**: EV active control — DLM limits dispatch through runtime EV adapters
+- [x] **Task 4.2**: MQTT sync module — đã hoàn thành trong Phase 7
+- [x] **Task 5.12**: Wire factory-built DeviceRegistry vào runtime polling/command
 
 ---
 
@@ -139,21 +142,21 @@
 
 ### Epic 8A: OCPP 1.6J Integration
 
-| Task | Mô tả | Effort | Depends |
+| Task | Mô tả | Status | Remaining |
 |---|---|---|---|
-| 8.1 | **OCPP Central System** — Implement OCPP 1.6J WebSocket server (dùng `github.com/lorenzodonini/ocpp-go`). Handle: BootNotification, Heartbeat, StatusNotification, MeterValues | 3d | — |
-| 8.2 | **OCPP charge control** — Implement RemoteStartTransaction, RemoteStopTransaction, SetChargingProfile (power limit) | 3d | 8.1 |
-| 8.3 | **EV Charger adapter — OCPP mode** — Extend `EVChargerAdapter` để hỗ trợ cả Modbus mode VÀ OCPP mode. Config chọn mode per charger: `protocol: "ocpp"` hoặc `protocol: "modbus"` | 2d | 8.2 |
-| 8.4 | **OCPP unit tests** — Mock OCPP charger client → test full flow: connect → boot → charge → meter values → stop | 2d | 8.3 |
+| 8.1 | **OCPP Central System** — Boot, heartbeat, status and meter messages | ✅ Software done | Wired into physical runtime; production TLS/credentials are deployment concerns |
+| 8.2 | **OCPP charge control** — Remote start/stop and charging profile | ✅ Software done | Bounded retry, stable request ID and rejected/error response handling implemented |
+| 8.3 | **EV Charger adapter — OCPP mode** | ✅ Software done | Live OCPP meter/session state feeds normalized snapshots and runtime DLM |
+| 8.4 | **OCPP verification** | ✅ Software done | Six-charger connect → boot → status → start → meter → profile → stop E2E passes under race detector |
 
 ### Epic 8B: Cloud Failover cho EV Charger
 
-| Task | Mô tả | Effort | Depends |
+| Task | Mô tả | Status | Remaining |
 |---|---|---|---|
-| 8.5 | **Heartbeat publisher** — Local EMS gửi heartbeat mỗi 30s qua MQTT topic `ems/{site_id}/heartbeat`. Payload: timestamp, status, EV charger states | 1d | 7.3 |
-| 8.6 | **Failover detector (Cloud side)** — Cloud service monitor heartbeat. Nếu miss 3 heartbeat liên tiếp (90s) → trigger failover mode | 2d | 8.5 |
-| 8.7 | **Cloud EV controller** — Khi failover active: Cloud gửi OCPP commands trực tiếp cho EV Chargers qua backup connection. Basic safe mode: giới hạn max power, không charge mới | 3d | 8.6, 8.2 |
-| 8.8 | **Failover recovery** — Khi Local EMS heartbeat resume → Cloud chuyển control về Local EMS. Handshake protocol tránh conflict commands | 2d | 8.7 |
+| 8.5 | **Heartbeat v2** — EV states, owner, failover state and lease epoch | ✅ Done | Long-duration reconnect soak remains |
+| 8.6 | **Cloud failover detector** — 90-second timeout and persisted transition | ✅ Software done | Full Docker process-kill timing evidence remains |
+| 8.7 | **Cloud EV safe-mode controller** — Backup OCPP registry and power limit | ✅ Software done | Six-charger Cloud integration passes; vendor switching/HIL remains |
+| 8.8 | **Failover recovery** — Lease-checked handover to Local | ✅ Software done | Startup guard and stale-epoch reassertion tested; uninterrupted real session remains HIL/SAT |
 
 **Done when:**
 - [ ] 6 EV Charger kết nối qua OCPP → hiển thị status trên dashboard
@@ -323,7 +326,7 @@ gantt
 |---|---|---|---|
 | Phase 6: Multi-brand & Config | 9 tasks | ~20 days | ✅ Done |
 | Phase 7: Cloud Sync & Buffer | 8 tasks | ~13 days | ✅ Done |
-| Phase 8: OCPP & EV Failover | 8 tasks | ~18 days | 🔴 Next |
+| Phase 8: OCPP & EV Failover | 8 tasks | ~18 days | 🟡 Software integration in progress; SAT pending |
 | Phase 9: Cloud Platform | 12 tasks | ~28 days | 🔴 Planned |
 | Phase 10: Hardening | 10 tasks | ~17 days | 🔴 Planned |
 | **Total** | **47 tasks** | **~96 man-days** | **17/47 done** |

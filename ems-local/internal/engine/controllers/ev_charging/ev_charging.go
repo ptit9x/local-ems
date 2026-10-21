@@ -3,6 +3,7 @@
 package ev_charging
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/vmo/ems-platform/ems-local/internal/engine/controllers"
@@ -16,9 +17,58 @@ import (
 // Priority: P3 (same level as peak_shaving and time_of_use).
 type EVChargingController struct {
 	mu           sync.RWMutex
-	maxSitePower int  // Maximum allowed total site import power (W) at PCC
-	evTotalPower int  // Current total EV charging power (W), updated externally
+	maxSitePower int // Maximum allowed total site import power (W) at PCC
+	evTotalPower int // Current total EV charging power (W), updated externally
 	enabled      bool
+}
+
+// ChargerDemand is the live demand used by the fair-share allocator.
+type ChargerDemand struct {
+	ID       string
+	DemandW  int
+	Online   bool
+	Charging bool
+}
+
+// AllocateLimits distributes remaining site headroom fairly. Chargers whose
+// demand is below the current share are satisfied first and the balance is
+// redistributed. Offline/non-charging chargers receive zero.
+func (c *EVChargingController) AllocateLimits(nonEVLoadW int, chargers []ChargerDemand) map[string]int {
+	c.mu.RLock()
+	budget := c.maxSitePower - nonEVLoadW
+	enabled := c.enabled
+	c.mu.RUnlock()
+	result := make(map[string]int, len(chargers))
+	if !enabled || budget <= 0 {
+		return result
+	}
+	pending := make([]ChargerDemand, 0, len(chargers))
+	for _, charger := range chargers {
+		if charger.Online && charger.Charging && charger.DemandW > 0 {
+			pending = append(pending, charger)
+		}
+	}
+	for budget > 0 && len(pending) > 0 {
+		share := budget / len(pending)
+		if share == 0 {
+			break
+		}
+		next := pending[:0]
+		for _, charger := range pending {
+			remaining := charger.DemandW - result[charger.ID]
+			grant := share
+			if remaining < grant {
+				grant = remaining
+			}
+			result[charger.ID] += grant
+			budget -= grant
+			if result[charger.ID] < charger.DemandW {
+				next = append(next, charger)
+			}
+		}
+		pending = next
+	}
+	return result
 }
 
 // New creates a new EVChargingController with the given site power limit.
@@ -42,6 +92,18 @@ func (c *EVChargingController) SetEnabled(enabled bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.enabled = enabled
+}
+
+// UpdateConfig atomically changes the site limit and enabled state.
+func (c *EVChargingController) UpdateConfig(maxSitePower int, enabled bool) error {
+	if maxSitePower <= 0 {
+		return fmt.Errorf("max site power must be positive")
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.maxSitePower = maxSitePower
+	c.enabled = enabled
+	return nil
 }
 
 // ID returns the unique identifier for this controller.

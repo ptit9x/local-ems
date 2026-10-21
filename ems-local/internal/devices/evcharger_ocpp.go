@@ -30,8 +30,9 @@ func (a *OCPPEVChargerAdapter) Poll() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
+	snapshot := cp.Snapshot()
 	// Map OCPP status to internal status
-	switch cp.Status {
+	switch snapshot.Status {
 	case "Available":
 		a.data.Status = StatusAvailable
 	case "Charging":
@@ -45,6 +46,12 @@ func (a *OCPPEVChargerAdapter) Poll() error {
 	case "Faulted":
 		a.data.Status = StatusFault
 	}
+	a.data.ActivePower = snapshot.ActivePowerW
+	a.data.EnergyDelivered = snapshot.EnergyWh
+	a.data.CurrentL1 = snapshot.CurrentL1A
+	a.data.CurrentL2 = snapshot.CurrentL2A
+	a.data.CurrentL3 = snapshot.CurrentL3A
+	a.data.VehicleConnected = snapshot.Status != "Available" && snapshot.Status != "Unavailable"
 
 	return nil
 }
@@ -89,7 +96,10 @@ func (a *OCPPEVChargerAdapter) WriteStartStop(start bool) error {
 	if start {
 		return cp.RemoteStartTransaction(1, "EMS")
 	} else {
-		// Just using 0 as a dummy transaction ID for Stop since we don't track it locally yet
-		return cp.RemoteStopTransaction(0)
+		transactionID := cp.Snapshot().TransactionID
+		if transactionID == 0 {
+			return fmt.Errorf("charge point %s has no active transaction", a.cpID)
+		}
+		return cp.RemoteStopTransaction(transactionID)
 	}
 }

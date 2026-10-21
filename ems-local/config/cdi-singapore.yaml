@@ -11,6 +11,9 @@ site:
 
 simulate: true # Simulated mode until real hardware is available
 
+ocpp:
+  listen_address: ":9000"
+
 devices:
   # BMS units: 4 units, each on a separate unit ID (simulating gateway/multi-drop addressing)
   # Real hardware: will be mapped to actual BMS controller IP addresses or RS485 gateway ports

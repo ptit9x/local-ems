@@ -42,13 +42,18 @@ devices:
     - { id: meter-grid,  host: 10.0.3.10, port: 502, unit: 1, role: grid, fast_ms: 200 }
     - { id: meter-solar, host: 10.0.3.11, port: 502, unit: 2, role: solar }
     - { id: meter-load,  host: 10.0.3.12, port: 502, unit: 3, role: load }
+  # OCPP chargers initiate WSS connections to /ocpp/{id}; host/port are not
+  # device-side Modbus addresses. TLS is terminated by the site reverse proxy.
   ev_charger:
-    - { id: evc-0, host: 10.0.4.10, port: 502, unit: 1, protocol: modbus }
-    - { id: evc-1, host: 10.0.4.11, port: 502, unit: 1, protocol: modbus }
-    - { id: evc-2, host: 10.0.4.12, port: 502, unit: 1, protocol: modbus }
-    - { id: evc-3, host: 10.0.4.13, port: 502, unit: 1, protocol: modbus }
-    - { id: evc-4, host: 10.0.4.14, port: 502, unit: 1, protocol: modbus }
-    - { id: evc-5, host: 10.0.4.15, port: 502, unit: 1, protocol: modbus }
+    - { id: evc-0, protocol: ocpp }
+    - { id: evc-1, protocol: ocpp }
+    - { id: evc-2, protocol: ocpp }
+    - { id: evc-3, protocol: ocpp }
+    - { id: evc-4, protocol: ocpp }
+    - { id: evc-5, protocol: ocpp }
+
+ocpp:
+  listen_address: ":9000"
 
 topology:
   pcc_meter: meter-grid

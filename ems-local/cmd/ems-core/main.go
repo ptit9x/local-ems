@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -13,8 +14,11 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/vmo/ems-platform/ems-local/internal/adapters"
 	"github.com/vmo/ems-platform/ems-local/internal/build"
 	"github.com/vmo/ems-platform/ems-local/internal/config"
+	"github.com/vmo/ems-platform/ems-local/internal/device_runtime"
+	"github.com/vmo/ems-platform/ems-local/internal/devices"
 	"github.com/vmo/ems-platform/ems-local/internal/devices/aggregator"
 	"github.com/vmo/ems-platform/ems-local/internal/engine/controllers"
 	"github.com/vmo/ems-platform/ems-local/internal/engine/controllers/balancing"
@@ -27,7 +31,9 @@ import (
 	"github.com/vmo/ems-platform/ems-local/internal/engine/distributor"
 	"github.com/vmo/ems-platform/ems-local/internal/engine/resolver"
 	"github.com/vmo/ems-platform/ems-local/internal/engine/scheduler"
+	"github.com/vmo/ems-platform/ems-local/internal/failover"
 	"github.com/vmo/ems-platform/ems-local/internal/health"
+	"github.com/vmo/ems-platform/ems-local/internal/ocpp"
 	"github.com/vmo/ems-platform/ems-local/internal/simulator"
 	"github.com/vmo/ems-platform/ems-local/internal/store"
 	emsSync "github.com/vmo/ems-platform/ems-local/internal/sync"
@@ -71,10 +77,6 @@ func main() {
 		cfg.Storage.DSN = *dbPath
 	}
 
-	if !cfg.Simulate {
-		log.Fatal("Only simulation mode is supported currently. Use --simulate flag or set simulate: true in config.")
-	}
-
 	nBMS := len(cfg.Devices.BMS)
 	nPCS := len(cfg.Devices.PCS)
 	nMeter := len(cfg.Devices.Meter)
@@ -110,6 +112,39 @@ func main() {
 	// --- Aggregator ---
 	agg := aggregator.New(nBMS, nPCS, nMeter, nEV)
 
+	// --- Physical device runtime (simulation continues to use in-memory devices) ---
+	var failoverManager *failover.FailoverManager
+	var deviceRegistry *devices.DeviceRegistry
+	var deviceRuntime *device_runtime.Orchestrator
+	var ocppCentral *ocpp.CentralSystem
+	if !cfg.Simulate {
+		hasOCPP := false
+		for _, charger := range cfg.Devices.EVCharger {
+			if charger.Protocol == "ocpp" {
+				hasOCPP = true
+				break
+			}
+		}
+		if hasOCPP {
+			ocppCentral = ocpp.NewCentralSystem(cfg.OCPP.ListenAddress, nil)
+			if err := ocppCentral.Start(); err != nil {
+				log.Fatalf("Failed to start Local OCPP Central System: %v", err)
+			}
+			defer ocppCentral.Stop()
+			log.Printf("ocpp: Local Central System listening on %s", cfg.OCPP.ListenAddress)
+		}
+		factory := adapters.NewFactory(ocppCentral)
+		var err error
+		deviceRegistry, err = factory.Build(cfg)
+		if err != nil {
+			log.Fatalf("Failed to build physical device registry: %v", err)
+		}
+		defer deviceRegistry.Close()
+		deviceRuntime = device_runtime.New(deviceRegistry, agg, cfg, func() bool {
+			return failoverManager == nil || failoverManager.ControlOwner() == "local"
+		})
+	}
+
 	// --- Distributor ---
 	dist := distributor.New(distributor.Strategy(cfg.Engine.Distribution), nPCS)
 
@@ -125,40 +160,42 @@ func main() {
 	})
 
 	// --- Initialize aggregator with simulated device states ---
-	for i, d := range cfg.Devices.BMS {
-		agg.UpdateBMS(i, aggregator.BMSState{
-			ID: d.ID, SOC: 70 + float64(i)*5, CapacityWh: 5000,
-			MaxChargeW: 2500, MaxDischargeW: 5000,
-			TempC: 25 + float64(i)*2, MinCellMV: 3200, MaxCellMV: 3400,
-			Online: true, UpdatedAt: time.Now(),
-		})
-	}
-	for i, d := range cfg.Devices.PCS {
-		agg.UpdatePCS(i, aggregator.PCSState{
-			ID: d.ID, MaxPowerW: 5000, Status: aggregator.PCSRunning,
-			Online: true, UpdatedAt: time.Now(),
-		})
-	}
-	for i, d := range cfg.Devices.Meter {
-		agg.UpdateMeter(i, aggregator.MeterState{
-			ID: d.ID, Role: d.Role, Online: true, FrequencyHz: 50.0,
-			VoltageV: 400, UpdatedAt: time.Now(),
-		})
-	}
-	for i, d := range cfg.Devices.EVCharger {
-		status := 0 // Available by default
-		power := 0
-		connected := false
-		if i%2 == 0 { // Simulate: half are charging
-			status = 1                     // Charging
-			power = 7000 + rand.Intn(4000) // 7-11 kW
-			connected = true
+	if cfg.Simulate {
+		for i, d := range cfg.Devices.BMS {
+			agg.UpdateBMS(i, aggregator.BMSState{
+				ID: d.ID, SOC: 70 + float64(i)*5, CapacityWh: 5000,
+				MaxChargeW: 2500, MaxDischargeW: 5000,
+				TempC: 25 + float64(i)*2, MinCellMV: 3200, MaxCellMV: 3400,
+				Online: true, UpdatedAt: time.Now(),
+			})
 		}
-		agg.UpdateEVCharger(i, aggregator.EVChargerState{
-			ID: d.ID, Status: status, ActivePowerW: power,
-			MaxPowerLimit: 22000, VehicleConnected: connected,
-			Online: true, UpdatedAt: time.Now(),
-		})
+		for i, d := range cfg.Devices.PCS {
+			agg.UpdatePCS(i, aggregator.PCSState{
+				ID: d.ID, MaxPowerW: 5000, Status: aggregator.PCSRunning,
+				Online: true, UpdatedAt: time.Now(),
+			})
+		}
+		for i, d := range cfg.Devices.Meter {
+			agg.UpdateMeter(i, aggregator.MeterState{
+				ID: d.ID, Role: d.Role, Online: true, FrequencyHz: 50.0,
+				VoltageV: 400, UpdatedAt: time.Now(),
+			})
+		}
+		for i, d := range cfg.Devices.EVCharger {
+			status := 0 // Available by default
+			power := 0
+			connected := false
+			if i%2 == 0 { // Simulate: half are charging
+				status = 1                     // Charging
+				power = 7000 + rand.Intn(4000) // 7-11 kW
+				connected = true
+			}
+			agg.UpdateEVCharger(i, aggregator.EVChargerState{
+				ID: d.ID, Status: status, ActivePowerW: power,
+				MaxPowerLimit: 22000, VehicleConnected: connected,
+				Online: true, UpdatedAt: time.Now(),
+			})
+		}
 	}
 
 	// --- Constraint System ---
@@ -242,6 +279,8 @@ func main() {
 	// --- Cloud Sync (MQTT store-and-forward) ---
 	var syncer *emsSync.Syncer
 	var cmdSub *emsSync.CommandSubscriber
+	var heartbeat *failover.HeartbeatPublisher
+	var failoverSubscribe func() error
 	syncInterval := time.Duration(cfg.Sync.IntervalSeconds) * time.Second
 	if syncInterval <= 0 {
 		syncInterval = 5 * time.Minute
@@ -262,6 +301,35 @@ func main() {
 
 		// Register command handlers
 		cmdSub = emsSync.NewCommandSubscriber(mqttPub, cfg.Site.ID, cfg.Sync.TopicPrefix)
+		failoverManager = failover.NewFailoverManager(mqttPub, cfg.Site.ID, cfg.Sync.TopicPrefix)
+		if !cfg.Simulate {
+			failoverManager.BeginStartupRecovery()
+		}
+		heartbeat = failover.NewHeartbeatPublisher(mqttPub, cfg.Site.ID, cfg.Sync.TopicPrefix, 30*time.Second)
+		heartbeat.SetFailoverProvider(func() (string, string, uint64) {
+			return failoverManager.ControlOwner(), failoverManager.State().String(), failoverManager.LeaseEpoch()
+		})
+		heartbeat.SetEVProvider(func() []failover.EVChargerInfo {
+			state := agg.Aggregate()
+			result := make([]failover.EVChargerInfo, 0, len(state.EVCharger))
+			for _, ev := range state.EVCharger {
+				result = append(result, failover.EVChargerInfo{ID: ev.ID, Status: ev.Status, ActivePowerW: ev.ActivePowerW, VehicleConnected: ev.VehicleConnected, Protocol: "ocpp"})
+			}
+			return result
+		})
+		failoverSubscribe = func() error {
+			topic := fmt.Sprintf("%s/%s/failover/control", cfg.Sync.TopicPrefix, cfg.Site.ID)
+			return mqttPub.Subscribe(topic, func(_ string, payload []byte) {
+				var command struct {
+					Action string `json:"action"`
+				}
+				if err := json.Unmarshal(payload, &command); err != nil || command.Action == "" {
+					log.Printf("failover: invalid control message")
+					return
+				}
+				failoverManager.HandleCloudMessage(command.Action, payload)
+			})
+		}
 		cmdSub.OnCommand("identify", func(cmd emsSync.RemoteCommand) error {
 			log.Printf("command: identify — site=%s version=%s", cfg.Site.ID, build.Version)
 			return nil
@@ -281,7 +349,33 @@ func main() {
 			return nil
 		})
 		cmdSub.OnCommand("update_config", func(cmd emsSync.RemoteCommand) error {
-			log.Printf("command: accepted allowlisted runtime config keys=%v", cmd.Payload)
+			allowed := map[string]bool{"ev_max_site_power_w": true, "ev_enabled": true}
+			for key := range cmd.Payload {
+				if !allowed[key] {
+					return fmt.Errorf("runtime config key %q is not hot-reloadable", key)
+				}
+			}
+			maxPower := cc.EVCharging.MaxSitePowerW
+			if raw, exists := cmd.Payload["ev_max_site_power_w"]; exists {
+				value, ok := raw.(float64)
+				if !ok || value <= 0 || value > 10_000_000 {
+					return fmt.Errorf("invalid ev_max_site_power_w")
+				}
+				maxPower = int(value)
+			}
+			enabled := cc.EVCharging.Enabled
+			if raw, exists := cmd.Payload["ev_enabled"]; exists {
+				value, ok := raw.(bool)
+				if !ok {
+					return fmt.Errorf("invalid ev_enabled")
+				}
+				enabled = value
+			}
+			if err := evCtrl.UpdateConfig(maxPower, enabled); err != nil {
+				return err
+			}
+			cc.EVCharging.MaxSitePowerW, cc.EVCharging.Enabled = maxPower, enabled
+			log.Printf("command: runtime EV config applied atomically max_site_power_w=%d enabled=%t", maxPower, enabled)
 			return nil
 		})
 
@@ -312,77 +406,114 @@ func main() {
 		// Distribute setpoint across PCS units
 		sysState := agg.Aggregate()
 		distResult := dist.Distribute(result.ResolvedPower.Setpoint, sysState.PCS)
-		for i, sp := range distResult.Setpoints {
-			pcs := sysState.PCS[i]
-			pcs.SetpointW = sp
-			pcs.ActivePowerW = sp // in simulation, output = setpoint
-			agg.UpdatePCS(i, pcs)
+		if cfg.Simulate {
+			for i, sp := range distResult.Setpoints {
+				pcs := sysState.PCS[i]
+				pcs.SetpointW = sp
+				pcs.ActivePowerW = sp // in simulation, output = setpoint
+				agg.UpdatePCS(i, pcs)
+			}
+		} else if deviceRuntime != nil {
+			setpoints := make(map[string]int, len(distResult.Setpoints))
+			for i, sp := range distResult.Setpoints {
+				if i < len(sysState.PCS) {
+					setpoints[sysState.PCS[i].ID] = sp
+				}
+			}
+			if err := deviceRuntime.ApplyPCSSetpoints(setpoints); err != nil {
+				log.Printf("pcs command: %v", err)
+			}
 		}
 
 		// Update BMS simulation (SOC drift, temp drift)
-		for i := 0; i < nBMS; i++ {
-			bms := sysState.BMS[i]
-			// Each BMS handles a portion of total ESS power
-			bmsPower := float64(result.ResolvedPower.Setpoint) / float64(nBMS)
-			socDelta := -bmsPower / float64(bms.CapacityWh) * 100.0 / 3600.0
-			bms.SOC = math.Max(0, math.Min(100, bms.SOC+socDelta))
-			bms.TempC = 25 + 5*math.Sin(float64(cycleCount)/200.0) + float64(i)*2 + rand.Float64()
-			bms.MinCellMV = 3100 + int(bms.SOC*5)
-			bms.MaxCellMV = bms.MinCellMV + 50 + rand.Intn(30)
-			bms.UpdatedAt = time.Now()
-			agg.UpdateBMS(i, bms)
-		}
-
-		// Update meters
-		for i := 0; i < nMeter; i++ {
-			m := sysState.Meter[i]
-			if m.Role == "grid" {
-				m.ActivePowerW = result.State.GridPowerW
-			} else if m.Role == "solar" {
-				m.ActivePowerW = result.State.SolarPowerW
+		if cfg.Simulate {
+			for i := 0; i < nBMS; i++ {
+				bms := sysState.BMS[i]
+				// Each BMS handles a portion of total ESS power
+				bmsPower := float64(result.ResolvedPower.Setpoint) / float64(nBMS)
+				socDelta := -bmsPower / float64(bms.CapacityWh) * 100.0 / 3600.0
+				bms.SOC = math.Max(0, math.Min(100, bms.SOC+socDelta))
+				bms.TempC = 25 + 5*math.Sin(float64(cycleCount)/200.0) + float64(i)*2 + rand.Float64()
+				bms.MinCellMV = 3100 + int(bms.SOC*5)
+				bms.MaxCellMV = bms.MinCellMV + 50 + rand.Intn(30)
+				bms.UpdatedAt = time.Now()
+				agg.UpdateBMS(i, bms)
 			}
-			m.FrequencyHz = 50.0 + (rand.Float64()-0.5)*0.1
-			m.VoltageV = 400 + (rand.Float64()-0.5)*10
-			m.CurrentA = float64(m.ActivePowerW) / m.VoltageV
-			m.UpdatedAt = time.Now()
-			agg.UpdateMeter(i, m)
+
+			// Update meters
+			for i := 0; i < nMeter; i++ {
+				m := sysState.Meter[i]
+				if m.Role == "grid" {
+					m.ActivePowerW = result.State.GridPowerW
+				} else if m.Role == "solar" {
+					m.ActivePowerW = result.State.SolarPowerW
+				}
+				m.FrequencyHz = 50.0 + (rand.Float64()-0.5)*0.1
+				m.VoltageV = 400 + (rand.Float64()-0.5)*10
+				m.CurrentA = float64(m.ActivePowerW) / m.VoltageV
+				m.UpdatedAt = time.Now()
+				agg.UpdateMeter(i, m)
+			}
 		}
 
 		// Update EV charger simulation
 		totalEVPower := 0
-		for i := 0; i < nEV; i++ {
-			ev := sysState.EVCharger[i]
-			// Simulate charging dynamics
-			if ev.Status == 1 { // Charging
-				ev.ActivePowerW = 7000 + rand.Intn(4000)     // 7-11 kW variation
-				ev.EnergyDelivered += ev.ActivePowerW / 3600 // Wh per second
-				ev.CurrentL1 = float64(ev.ActivePowerW) / 230.0
-				ev.CurrentL2 = ev.CurrentL1 * (0.95 + rand.Float64()*0.1)
-				ev.CurrentL3 = ev.CurrentL1 * (0.95 + rand.Float64()*0.1)
-				// Randomly finish charging (1 in 300 cycles ≈ every 5 min)
-				if rand.Intn(300) == 0 {
-					ev.Status = 4 // Finishing
-					ev.ActivePowerW = 0
-				}
-			} else if ev.Status == 0 && rand.Intn(120) == 0 {
-				// Available → vehicle arrives and starts charging
-				ev.Status = 1
-				ev.VehicleConnected = true
-				ev.EnergyDelivered = 0
-			} else if ev.Status == 4 {
-				ev.ActivePowerW = 0
-				ev.CurrentL1 = 0
-				ev.CurrentL2 = 0
-				ev.CurrentL3 = 0
-				// Finishing → vehicle disconnects
-				if rand.Intn(60) == 0 {
-					ev.Status = 0
-					ev.VehicleConnected = false
-				}
+		demands := make([]ev_charging.ChargerDemand, 0, nEV)
+		for _, ev := range sysState.EVCharger {
+			demand := ev.MaxPowerLimit
+			if demand <= 0 {
+				demand = 22000
 			}
-			totalEVPower += ev.ActivePowerW
-			ev.UpdatedAt = time.Now()
-			agg.UpdateEVCharger(i, ev)
+			demands = append(demands, ev_charging.ChargerDemand{ID: ev.ID, DemandW: demand, Online: ev.Online, Charging: ev.Status == 1})
+		}
+		nonEVLoad := sysState.GridPowerW - sysState.TotalEVPowerW
+		limits := evCtrl.AllocateLimits(nonEVLoad, demands)
+		if cfg.Simulate {
+			for i := 0; i < nEV; i++ {
+				ev := sysState.EVCharger[i]
+				ev.MaxPowerLimit = limits[ev.ID]
+				// Simulate charging dynamics
+				if ev.Status == 1 { // Charging
+					ev.ActivePowerW = 7000 + rand.Intn(4000) // 7-11 kW variation
+					if ev.ActivePowerW > ev.MaxPowerLimit {
+						ev.ActivePowerW = ev.MaxPowerLimit
+					}
+					ev.EnergyDelivered += ev.ActivePowerW / 3600 // Wh per second
+					ev.CurrentL1 = float64(ev.ActivePowerW) / 230.0
+					ev.CurrentL2 = ev.CurrentL1 * (0.95 + rand.Float64()*0.1)
+					ev.CurrentL3 = ev.CurrentL1 * (0.95 + rand.Float64()*0.1)
+					// Randomly finish charging (1 in 300 cycles ≈ every 5 min)
+					if rand.Intn(300) == 0 {
+						ev.Status = 4 // Finishing
+						ev.ActivePowerW = 0
+					}
+				} else if ev.Status == 0 && rand.Intn(120) == 0 {
+					// Available → vehicle arrives and starts charging
+					ev.Status = 1
+					ev.VehicleConnected = true
+					ev.EnergyDelivered = 0
+				} else if ev.Status == 4 {
+					ev.ActivePowerW = 0
+					ev.CurrentL1 = 0
+					ev.CurrentL2 = 0
+					ev.CurrentL3 = 0
+					// Finishing → vehicle disconnects
+					if rand.Intn(60) == 0 {
+						ev.Status = 0
+						ev.VehicleConnected = false
+					}
+				}
+				totalEVPower += ev.ActivePowerW
+				ev.UpdatedAt = time.Now()
+				agg.UpdateEVCharger(i, ev)
+			}
+		} else if deviceRuntime != nil {
+			if err := deviceRuntime.ApplyEVLimits(limits); err != nil {
+				log.Printf("ev dlm command: %v", err)
+			}
+			for _, ev := range sysState.EVCharger {
+				totalEVPower += ev.ActivePowerW
+			}
 		}
 		// Feed EV total power to DLM controller
 		evCtrl.SetEVTotalPower(totalEVPower)
@@ -431,6 +562,24 @@ func main() {
 	// --- Run ---
 	syncer.Start(ctx)
 	defer syncer.Stop()
+	if failoverManager != nil && !cfg.Simulate {
+		go func() {
+			for ctx.Err() == nil && failoverManager.State() == failover.HandoverPending {
+				if err := failoverManager.RequestRecovery(); err != nil {
+					log.Printf("failover: startup recovery: %v", err)
+				}
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(2 * time.Second):
+				}
+			}
+		}()
+	}
+	if heartbeat != nil {
+		heartbeat.Start(ctx)
+		defer heartbeat.Stop()
+	}
 	if cmdSub != nil {
 		go func() {
 			for ctx.Err() == nil {
@@ -441,6 +590,19 @@ func main() {
 			}
 		}()
 	}
+	if failoverSubscribe != nil {
+		go func() {
+			for ctx.Err() == nil {
+				if err := failoverSubscribe(); err == nil {
+					return
+				}
+				time.Sleep(2 * time.Second)
+			}
+		}()
+	}
+	if deviceRuntime != nil {
+		deviceRuntime.Start(ctx, cfg.StandardInterval())
+	}
 
 	fmt.Printf("▶ Starting EMS cycle loop with %d devices... (Ctrl+C to stop)\n", totalDevices)
 	fmt.Printf("📊 Dashboard: http://localhost:%s\n\n", portStr)
@@ -448,10 +610,15 @@ func main() {
 	cm.Start(ctx, func() controllers.DeviceState {
 		// Get aggregated state and map to DeviceState for controllers
 		sys := agg.Aggregate()
+		solarPower, loadPower := sys.SolarPowerW, sys.LoadPowerW
+		if cfg.Simulate {
+			simState := sim.NextState()
+			solarPower, loadPower = simState.SolarPowerW, simState.LoadPowerW
+		}
 		return controllers.DeviceState{
 			GridPowerW:       sys.GridPowerW,
-			SolarPowerW:      sim.NextState().SolarPowerW,
-			LoadPowerW:       sim.NextState().LoadPowerW,
+			SolarPowerW:      solarPower,
+			LoadPowerW:       loadPower,
 			BatterySOC:       sys.TotalSOC,
 			BatteryTempC:     sys.MaxCellTempC,
 			ESSActivePowerW:  sys.TotalActivePowerW,
@@ -459,6 +626,8 @@ func main() {
 			CellVoltageMaxMV: sys.MaxCellVoltMV,
 		}
 	}, func(setpoint int) {
-		sim.ApplyPower(setpoint)
+		if cfg.Simulate {
+			sim.ApplyPower(setpoint)
+		}
 	})
 }

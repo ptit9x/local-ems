@@ -11,6 +11,9 @@ This directory is the **single source of truth** for all data formats exchanged 
 | `ems/{site_id}/alerts` | Local → Cloud | Real-time alerts |
 | `ems/{site_id}/command` | Cloud → Local | Remote configuration commands |
 | `ems/{site_id}/command/ack` | Local → Cloud | Command acknowledgment |
+| `ems/{site_id}/failover/control` | Cloud → Local | Takeover and handover lease commands |
+| `ems/{site_id}/failover/recovery` | Local → Cloud | Recovery request |
+| `ems/{site_id}/failover/ack` | Bidirectional | Transition acknowledgment |
 
 - `{site_id}` is a lowercase slug, e.g. `sg-01`, `tw-factory-02`.
 - QoS 1 for telemetry, alerts, commands and acknowledgments; QoS 0 for heartbeat.
@@ -22,6 +25,11 @@ This directory is the **single source of truth** for all data formats exchanged 
 |---|---|---|
 | [`telemetry.schema.json`](telemetry.schema.json) | Go publisher, NestJS consumer | Aggregated power, SOC, energy data |
 | [`commands.schema.json`](commands.schema.json) | NestJS publisher, Go consumer | Remote config, tariff updates |
+| [`heartbeat-v2.schema.json`](heartbeat-v2.schema.json) | Go publisher, NestJS consumer | Control owner, failover state, lease epoch and EV state |
+| [`failover-v2.schema.json`](failover-v2.schema.json) | Go/NestJS | Monotonic takeover and handover coordination |
+
+Cloud accepts heartbeat v1 during migration. Failover receivers ignore commands whose
+`lease_epoch` is lower than the latest accepted epoch.
 
 ## Rules for Changing Contracts
 

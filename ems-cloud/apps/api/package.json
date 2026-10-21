@@ -32,6 +32,7 @@
     "mqtt": "^5.10.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"
+    ,"ws": "^8.18.3"
   },
   "devDependencies": {
     "@nestjs/cli": "^11.0.0",
@@ -43,6 +44,7 @@
     "@types/jest": "^29.5.0",
     "@types/jsonwebtoken": "^9.0.7",
     "@types/node": "^22.0.0",
+    "@types/ws": "^8.18.1",
     "jest": "^29.7.0",
     "prisma": "^6.0.0",
     "source-map-support": "^0.5.21",

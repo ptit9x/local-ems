@@ -53,6 +53,7 @@ type SampledValue struct {
 	Value     string `json:"value"`
 	Measurand string `json:"measurand,omitempty"`
 	Unit      string `json:"unit,omitempty"`
+	Phase     string `json:"phase,omitempty"`
 }
 type MeterValuesConf struct{}
 

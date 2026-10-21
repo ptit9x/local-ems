@@ -22,7 +22,7 @@ func NewFailoverEVController(fm *FailoverManager, safeCfg EVSafeConfig) *Failove
 
 func (c *FailoverEVController) ShouldControl() bool {
 	state := c.failover.State()
-	return state == FailoverNormal || state == FailoverRecovery
+	return state == LocalActive
 }
 
 func (c *FailoverEVController) SafeConfig() EVSafeConfig {
@@ -32,5 +32,5 @@ func (c *FailoverEVController) SafeConfig() EVSafeConfig {
 }
 
 func (c *FailoverEVController) IsFailoverActive() bool {
-	return c.failover.State() == FailoverActive
+	return c.failover.State() == CloudActive
 }

@@ -6,6 +6,7 @@ import { SitesModule } from './sites/sites.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth/auth.module';
 import { CommandsModule } from './commands/commands.module';
+import { FailoverModule } from './failover/failover.module';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { CommandsModule } from './commands/commands.module';
     CommandsModule,
     SitesModule,
     TelemetryModule,
+    FailoverModule,
   ],
 })
 export class AppModule {}

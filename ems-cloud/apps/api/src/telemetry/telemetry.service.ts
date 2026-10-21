@@ -30,7 +30,7 @@ export class TelemetryService {
   constructor(private readonly prisma: PrismaService) {}
 
   findStaleSites(cutoff: Date) {
-    return this.prisma.site.findMany({ where: { status: 'ONLINE', OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: cutoff } }] }, select: { id: true } });
+    return this.prisma.site.findMany({ where: { status: 'ONLINE', OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: cutoff } }] }, select: { id: true, siteCode: true } });
   }
 
   async markOffline(siteId: string) {
@@ -95,13 +95,14 @@ export class TelemetryService {
     this.logger.log(`Ingested telemetry for ${siteCode}: ${payload.cycle_count} cycles`);
   }
 
-  async heartbeat(siteCode: string, payload: { schema_version?: number; site_id?: string; timestamp?: string }) {
-    if (payload.schema_version !== 1 || payload.site_id !== siteCode || !payload.timestamp) throw new Error('invalid heartbeat contract');
+  async heartbeat(siteCode: string, payload: { schema_version?: number; site_id?: string; timestamp?: string; control_owner?: string; failover_state?: string; lease_epoch?: number }) {
+    if (![1, 2].includes(payload.schema_version ?? 0) || payload.site_id !== siteCode || !payload.timestamp) throw new Error('invalid heartbeat contract');
+    if (payload.schema_version === 2 && (!['local','cloud','none'].includes(payload.control_owner ?? '') || !Number.isSafeInteger(payload.lease_epoch))) throw new Error('invalid heartbeat v2 failover fields');
     const site = await this.prisma.site.findUnique({ where: { siteCode } });
     if (!site) return;
     const timestamp = new Date(payload.timestamp);
     await this.prisma.$transaction([
-      this.prisma.heartbeat.create({ data: { siteId: site.id, timestamp, schemaVersion: 1 } }),
+      this.prisma.heartbeat.create({ data: { siteId: site.id, timestamp, schemaVersion: payload.schema_version } }),
       this.prisma.site.update({ where: { id: site.id }, data: { lastSeenAt: timestamp, status: 'ONLINE' } }),
       this.prisma.alert.updateMany({ where: { siteId: site.id, code: 'SITE_OFFLINE', active: true }, data: { active: false, resolvedAt: new Date() } }),
     ]);

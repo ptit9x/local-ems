@@ -126,7 +126,7 @@ Each cycle (~1 second), Cycle Manager executes sequentially:
 
 ### Phase 4: Local UI & Offline Sync
 - [x] Task 4.1: Embed SQLite, establish buffer service. *(InfluxDB → SQLite for MVP)*
-- [ ] Task 4.2: Code `sync` module to publish MQTT when online (Store-and-Forward). *(deferred to post-MVP)*
+- [x] Task 4.2: Code `sync` module to publish MQTT when online (Store-and-Forward). *(completed in Phase 7)*
 - [x] Task 4.3: Build REST API + WebSocket for Local Web UI (Display real-time power flow).
 - [x] Task 4.4: Code `/internal/health` — watchdog heartbeat, restart policy when a controller panics.
 
@@ -140,7 +140,9 @@ Each cycle (~1 second), Cycle Manager executes sequentially:
 - [x] Task 5.7: Aggregator EV Charger — EVChargerState, UpdateEVCharger, EV counts/totals
 - [x] Task 5.8: Distributor master/individual mode — BESS group command mode support
 - [x] Task 5.9: SQLite WAL mode + 7-day auto-retention
-- [ ] Task 5.10: EV active control — auto WriteMaxPower from DLM controller
+- [x] Task 5.10: EV active control — auto WriteMaxPower from DLM controller
+- [x] Task 5.11: Config-driven `AdapterFactory` — select by device type/protocol/vendor, build `DeviceRegistry` transactionally, normalize snapshot and health
+- [x] Task 5.12: Runtime orchestration — wire factory-built registry into `cmd/ems-core` polling and command paths
 
 ### Phase 6: Real Hardware & Multi-rate Polling (Planned)
 - [ ] Task 6.1: Multi-rate poller (200ms/1s/5s goroutines)

@@ -17,6 +17,13 @@ type DeviceAdapter interface {
 	Health() DeviceHealth
 }
 
+// SnapshotDevice exposes the last successfully normalized values without
+// requiring callers to know the underlying protocol or vendor register map.
+type SnapshotDevice interface {
+	DeviceAdapter
+	Snapshot() DataPoints
+}
+
 // DeviceHealth represents the health/connection status of a device.
 type DeviceHealth struct {
 	Connected       bool

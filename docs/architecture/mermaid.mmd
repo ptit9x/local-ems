@@ -1,70 +1,116 @@
+%% CDI EMS Phase 2 target architecture. This file is the source of truth.
 flowchart LR
-    %% Styling
-    classDef container fill:#0f172a,stroke:#38bdf8,stroke-width:2px,color:#f8fafc
-    classDef hardware fill:#162238,stroke:#64748b,stroke-width:1.5px,color:#f8fafc
-    classDef localMod fill:#132338,stroke:#0284c7,stroke-width:1.5px,color:#f8fafc
-    classDef engineMod fill:#162032,stroke:#eab308,stroke-width:2px,color:#fde047
-    classDef storageMod fill:#1f1633,stroke:#a855f7,stroke-width:1.5px,color:#d8b4fe
-    classDef cloudMod fill:#162032,stroke:#10b981,stroke-width:1.5px,color:#f8fafc
+    classDef hw fill:#172033,stroke:#64748b,color:#f8fafc
+    classDef edge fill:#0f2942,stroke:#38bdf8,color:#f8fafc
+    classDef control fill:#302710,stroke:#facc15,color:#fef08a
+    classDef data fill:#28163d,stroke:#c084fc,color:#f3e8ff
+    classDef cloud fill:#102d29,stroke:#34d399,color:#f8fafc
+    classDef external fill:#3b1d24,stroke:#fb7185,color:#fff1f2
+    classDef note fill:#202020,stroke:#94a3b8,color:#f8fafc,stroke-dasharray: 5 5
 
-    subgraph SITE ["1. SITE HARDWARE — SINGAPORE"]
-        PM["Power Meter x3<br/>(Modbus TCP - Read Only)"]:::hardware
-        BMS["BMS x4<br/>(Modbus TCP - Read Only)"]:::hardware
-        PCS["PCS x24 — Lite-On<br/>(Modbus TCP - Bi-directional)"]:::hardware
-        EV["EV Charger x6<br/>(OCPP 1.6J - Bi-directional)"]:::hardware
+    subgraph SITE["SITE HARDWARE — SINGAPORE"]
+      direction TB
+      PM["Power Meter ×3<br/>PCC / Solar / Load"]:::hw
+      BMS["BMS ×4<br/>SOC • SOH • Temperature • Fire"]:::hw
+      PCS["PCS ×24 — Lite-On<br/>Active / Reactive Power"]:::hw
+      SWITCH["Industrial Ethernet Switch<br/>Site LAN"]:::hw
+      EV["EV Charger ×6<br/>OCPP 1.6J"]:::hw
+      PM <-->|"Modbus TCP • telemetry"| SWITCH
+      BMS -->|"Modbus TCP • telemetry<br/>vendor CAN remains internal"| SWITCH
+      PCS <-->|"Modbus TCP • telemetry + command"| SWITCH
+      EV <-->|"OCPP WebSocket"| SWITCH
     end
 
-    subgraph LOCAL ["2. LOCAL EMS — GO (ON-PREMISE EDGE)"]
-        ADAPTER["Expandable Adapter Layer<br/>(Meter | BMS | PCS | EV Adapters)"]:::localMod
-        DAQ["Data Acquisition & In-Memory Cache<br/>(200ms Fast Poll | 5s Slow Poll | 5-min Aggregator)"]:::localMod
-
-        subgraph CCE ["Constraint Control Engine (Real-Time Loop)"]
-            P1["P1: Battery Protection (BMS Limits, Watchdog)"]
-            P2["P2: Grid Compliance (Zero Export / Import Limit)"]
-            P3["P3: Peak Shaving • TOU • EV DLM"]
-            P4["P4: Self-Consumption • Cloud Setpoints"]
-            P1 --> P2 --> P3 --> P4
-        end
-
-        DIST["Command Distributor & Hardware Watchdog<br/>(24x PCS kW/kVAr & 6x EV Current Limits)"]:::localMod
-        SQLITE[("SQLite (WAL Mode)<br/>7-Day Ring Buffer")]:::storageMod
-        MQTTSYNC["MQTT Sync Engine<br/>(Store-and-Forward / Rate-Limited Backfill)"]:::localMod
-        LOCALUI["Local Web Dashboard (:8080)<br/>(Local Monitoring & Manual Override)"]:::localMod
+    subgraph EDGE["LOCAL EMS — GO • ON-PREMISE EDGE"]
+      direction TB
+      subgraph ADAPTER_LAYER["CONFIG-DRIVEN ADAPTER LAYER"]
+        direction TB
+        FACTORY["AdapterFactory + DeviceRegistry<br/>Select by type • protocol • vendor profile"]:::edge
+        METER_BMS["Meter + BMS Adapters<br/>Modbus TCP"]:::edge
+        PCS_ADAPTER["PCS Driver Adapter<br/>Built-in / YAML vendor profile"]:::edge
+        EV_ADAPTER["EV Adapter<br/>Modbus TCP or OCPP 1.6J"]:::edge
+        NORMALIZED["Normalized Snapshot + Health<br/>Registry runtime orchestration implemented"]:::edge
+        FACTORY --> METER_BMS
+        FACTORY --> PCS_ADAPTER
+        FACTORY --> EV_ADAPTER
+        METER_BMS --> NORMALIZED
+        PCS_ADAPTER --> NORMALIZED
+        EV_ADAPTER --> NORMALIZED
+      end
+      OCPP_LOCAL["Local OCPP Central System<br/>Primary EV control endpoint"]:::edge
+      DAQ["Data Acquisition + In-Memory State<br/>200 ms critical • 5 s standard"]:::edge
+      subgraph ENGINE["Constraint Control Engine — 1 s autonomous loop"]
+        direction TB
+        P1["P1 Battery / Fire Protection"]:::control
+        P2["P2 Grid Compliance"]:::control
+        P3["P3 Peak Shaving • ToU • EV DLM"]:::control
+        P4["P4 Self-Consumption • Validated Cloud Setpoints"]:::control
+        P1 --> P2 --> P3 --> P4
+      end
+      DIST["Command Distributor<br/>PCS setpoints • EV fair-share limits"]:::edge
+      WATCH["Hardware Watchdog + Device Health"]:::edge
+      FAIL_LOCAL["Local Failover Agent<br/>lease_epoch • control owner • handover"]:::edge
+      CONFIG["Hot-Reload Config Manager<br/>validate • atomic apply • rollback"]:::edge
+      SQLITE[("SQLite WAL<br/>7-day buffer • config revision • audit")]:::data
+      SYNC["MQTT Store-and-Forward<br/>QoS 1 • rate-limited backfill"]:::edge
+      LOCAL_UI["Local Dashboard + Manual Override<br/>:8080"]:::edge
+      NORMALIZED --> DAQ --> ENGINE --> DIST
+      DIST --> WATCH --> FACTORY
+      OCPP_LOCAL <--> EV_ADAPTER
+      DIST --> OCPP_LOCAL
+      FAIL_LOCAL -. "control gate" .-> DIST
+      CONFIG --> FACTORY
+      CONFIG --> ENGINE
+      DAQ --> SQLITE
+      DIST --> SQLITE
+      SQLITE <--> SYNC
+      SQLITE --> LOCAL_UI
     end
 
-    subgraph CLOUD ["3. EMS CLOUD"]
-        BROKER["MQTT Broker (TLS)<br/>(QoS 1 | LWT Heartbeat)"]:::cloudMod
-        NEST["NestJS Backend API<br/>(Ingestion, Commands, REST/WS)"]:::cloudMod
-        TSDB[("PostgreSQL / TimescaleDB<br/>(Time-Series Hypertables)")]:::storageMod
-        REACT["React Cloud Dashboard<br/>(Analytics & Remote Setpoints)"]:::cloudMod
-        ALERT["Alert Service<br/>(Offline & Fault Notifications)"]:::cloudMod
+    SWITCH <-->|"Modbus TCP"| METER_BMS
+    SWITCH <-->|"Modbus TCP"| PCS_ADAPTER
+    SWITCH <-->|"Modbus TCP — optional EV profile"| EV_ADAPTER
+    SWITCH <-->|"Primary OCPP 1.6J"| OCPP_LOCAL
+
+    subgraph BOUNDARY["SITE FIREWALL / NAT / TLS BOUNDARY"]
+      FW["Outbound TLS allowlist<br/>MQTT 8883 • OCPP WSS"]:::external
     end
 
-    %% Hardware <-> Local Connections
-    PM -->|Modbus Poll| ADAPTER
-    BMS -->|Modbus Poll| ADAPTER
-    PCS <-->|Modbus Poll & Cmd| ADAPTER
-    EV <-->|OCPP 1.6J 2-Way| ADAPTER
+    subgraph CLOUD["EMS CLOUD — MULTI-TENANT PLATFORM"]
+      direction TB
+      MQTT["MQTT Broker<br/>TLS • QoS 1 • per-site credentials"]:::cloud
+      INGEST["Telemetry + Heartbeat Ingestion<br/>deduplication • offline detector"]:::cloud
+      API["NestJS API<br/>RBAC • tenant isolation • audit"]:::cloud
+      DB[("PostgreSQL / TimescaleDB<br/>telemetry • EV sessions • failover • config")]:::data
+      OCPP_CLOUD["Cloud OCPP Central System<br/>Backup charger registry"]:::cloud
+      FAIL_CLOUD["EV Failover Controller<br/>lease coordinator • safe mode"]:::cloud
+      COMMAND["Command + Configuration Service<br/>tariff • topology • revision deployment"]:::cloud
+      FDD["FDD + Alert Rule Engine<br/>debounce • cooldown • acknowledge"]:::cloud
+      NOTIFY["Notification Adapters<br/>Email • SMS • Webhook"]:::cloud
+      DASH["React Operations Dashboard<br/>fleet • EV • failover • alerts • config"]:::cloud
+      OBS["Metrics + Operations Audit<br/>health • latency • takeover duration"]:::cloud
+      MQTT --> INGEST --> API
+      API <--> DB
+      COMMAND --> MQTT
+      FAIL_CLOUD <--> OCPP_CLOUD
+      FAIL_CLOUD --> DB
+      INGEST --> FAIL_CLOUD
+      API --> FDD --> NOTIFY
+      FDD --> DB
+      API <--> DASH
+      OBS -.-> DASH
+      MQTT -.-> OBS
+      OCPP_CLOUD -.-> OBS
+    end
 
-    %% Internal Local Connections
-    ADAPTER --> DAQ
-    DAQ --> CCE
-    CCE --> DIST
-    DIST -.->|Closed-Loop Commands| ADAPTER
-    DAQ -.->|5-min Aggregated Data| SQLITE
-    DIST --> SQLITE
-    DIST --> MQTTSYNC
-    SQLITE <-->|Read / Write Buffer| MQTTSYNC
-    SQLITE --> LOCALUI
-    LOCALUI --> MQTTSYNC
+    SYNC ==>|"Telemetry • heartbeat v2 • command ACK<br/>5-min aggregate + backfill"| FW
+    FW ==>|"MQTT TLS"| MQTT
+    MQTT -.->|"Config • tariff • validated setpoints"| SYNC
+    FAIL_CLOUD <-->|"takeover • recovery • ACK<br/>lease_epoch"| FAIL_LOCAL
+    SWITCH <-.->|"Backup OCPP 1.6J — Phase 2<br/>logical path; vendor capability gate"| FW
+    FW <-.->|"OCPP WSS safe-mode commands<br/>only while Cloud owns lease"| OCPP_CLOUD
 
-    %% Local <-> Cloud Connections
-    MQTTSYNC ==>|MQTT Telemetry Up - 5m Sync & Backfill| BROKER
-    BROKER -.->|MQTT Setpoints Down - Validated| P4
-
-    %% Internal Cloud Connections
-    BROKER <--> NEST
-    NEST <--> TSDB
-    NEST <-->|REST API / WebSocket| REACT
-    NEST -.-> ALERT
-    ALERT -.-> REACT
+    AUTONOMY["LOCAL AUTONOMY<br/>BESS safety and control continue<br/>when Cloud or MQTT is unavailable"]:::note
+    VENDOR["EXTERNAL GATE<br/>Confirm charger dual endpoint, DNS/LB<br/>or redundant site gateway before SAT"]:::note
+    ENGINE -.-> AUTONOMY
+    OCPP_CLOUD -.-> VENDOR

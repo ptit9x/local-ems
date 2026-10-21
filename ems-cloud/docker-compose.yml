@@ -1,6 +1,6 @@
 services:
   postgres:
-    image: timescale/timescaledb:latest-pg16
+    image: timescale/timescaledb:latest-pg18
     container_name: ems-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-ems}
@@ -27,8 +27,8 @@ services:
       - mosquitto_data:/mosquitto/data
       - mosquitto_log:/mosquitto/log
 
-  api:
-    build: { context: ., dockerfile: Dockerfile.api }
+  ems-api:
+    build: { context: ., dockerfile: Dockerfile.ems-api }
     environment:
       DATABASE_URL: postgresql://ems:ems_secret@postgres:5432/ems_cloud?schema=public
       MQTT_BROKER_URL: mqtt://mosquitto:1883
@@ -40,10 +40,10 @@ services:
       postgres: { condition: service_healthy }
       mosquitto: { condition: service_started }
 
-  dashboard:
-    build: { context: ., dockerfile: Dockerfile.dashboard }
+  ems-web:
+    build: { context: ., dockerfile: Dockerfile.ems-web }
     ports: ["5173:80"]
-    depends_on: [api]
+    depends_on: [ems-api]
 
 volumes:
   pgdata:

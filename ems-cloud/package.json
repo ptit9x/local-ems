@@ -8,17 +8,17 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w apps/api",
-    "dev:dashboard": "npm run dev -w apps/dashboard",
-    "build": "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/dashboard",
-    "test": "npm run test -w apps/api",
-    "lint": "npm run lint -w apps/api",
+    "dev": "npm run dev -w apps/ems-api",
+    "dev:web": "npm run dev -w apps/ems-web",
+    "build": "npm run build -w packages/shared && npm run build -w apps/ems-api && npm run build -w apps/ems-web",
+    "test": "npm run test -w apps/ems-api",
+    "lint": "npm run lint -w apps/ems-api",
     "test:contracts": "node scripts/validate-contracts.cjs",
     "test:smoke": "node scripts/smoke-demo.mjs",
-    "db:generate": "npm run db:generate -w apps/api",
-    "db:migrate": "npm run db:migrate -w apps/api",
-    "db:seed": "npm run db:seed -w apps/api",
-    "db:studio": "npm run db:studio -w apps/api",
+    "db:generate": "npm run db:generate -w apps/ems-api",
+    "db:migrate": "npm run db:migrate -w apps/ems-api",
+    "db:seed": "npm run db:seed -w apps/ems-api",
+    "db:studio": "npm run db:studio -w apps/ems-api",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:logs": "docker compose logs -f"
@@ -36,6 +36,6 @@
     "deepmerge-ts": "8.0.2"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=26.0.0"
   }
 }

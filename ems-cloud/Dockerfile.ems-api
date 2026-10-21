@@ -1,0 +1,11 @@
+FROM node:26-alpine
+WORKDIR /app
+COPY package*.json ./
+COPY apps/ems-api/package.json apps/ems-api/package.json
+COPY apps/ems-web/package.json apps/ems-web/package.json
+COPY packages/shared/package.json packages/shared/package.json
+RUN npm ci
+COPY . .
+RUN npm run db:generate && npm run build -w packages/shared && npm run build -w apps/ems-api
+EXPOSE 3000
+CMD ["sh", "-c", "npx prisma db push --schema apps/ems-api/prisma/schema.prisma && npx prisma db execute --schema apps/ems-api/prisma/schema.prisma --file apps/ems-api/prisma/migrations/202610160001_simulator_mvp/migration.sql && npm run db:seed && node apps/ems-api/dist/main.js"]

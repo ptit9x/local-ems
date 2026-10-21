@@ -125,7 +125,7 @@ npm run db:migrate
 npm run dev
 ```
 
-Start the Vite dashboard separately with `npm run dev:dashboard`. More details are in [`ems-cloud/README.md`](ems-cloud/README.md).
+Start the Vite dashboard separately with `npm run dev:web`. More details are in [`ems-cloud/README.md`](ems-cloud/README.md).
 
 ## Implemented Capabilities
 
@@ -186,8 +186,8 @@ vmo_bid_cdi/
 │   ├── config/                # site configs, scenario, PCS profiles
 │   └── web/                   # embedded dashboard assets
 ├── ems-cloud/
-│   ├── apps/api/              # NestJS API and Prisma schema
-│   ├── apps/dashboard/        # React/Vite dashboard
+│   ├── apps/ems-api/          # NestJS API and Prisma schema
+│   ├── apps/ems-web/          # React/Vite dashboard
 │   ├── packages/shared/       # shared TypeScript contract types
 │   └── docker/                # local infrastructure configuration
 ├── contracts/                 # JSON Schema contracts

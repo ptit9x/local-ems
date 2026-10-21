@@ -32,13 +32,13 @@ cp .env.example .env
 # 4. Generate Prisma client & run migrations
 npm run db:generate
 npm run db:migrate
-npm run db:seed -w apps/api
+npm run db:seed -w apps/ems-api
 
 # 5. Start API in dev mode
 npm run dev
 ```
 
-API is available at `http://localhost:3000/api`. Start the dashboard in another terminal with `npm run dev:dashboard`, then open `http://localhost:5173`.
+API is available at `http://localhost:3000/api`. Start the web dashboard in another terminal with `npm run dev:web`, then open `http://localhost:5173`.
 
 For the complete demo stack from the repository root, use `make demo`. The seeded admin login is `admin@demo.local` / `demo1234`.
 
@@ -47,12 +47,12 @@ For the complete demo stack from the repository root, use `make demo`. The seede
 ```
                     ┌──────────────────────────┐
                     │      React Dashboard     │
-                    │    apps/dashboard/       │
+                    │    apps/ems-web/         │
                     └──────────┬───────────────┘
                                │ REST API
                     ┌──────────┴───────────────┐
                     │       NestJS API         │
-                    │       apps/api/          │
+                    │       apps/ems-api/      │
                     ├──────────────────────────┤
                     │  TelemetryModule         │ ← MQTT subscribe
                     │  SitesModule             │
@@ -107,21 +107,52 @@ Message schemas: [`../contracts/`](../contracts/)
 ```
 ems-cloud/
 ├── apps/
-│   ├── api/                     # NestJS backend
+│   ├── ems-api/                    # NestJS backend
 │   │   ├── src/
-│   │   │   ├── main.ts          # Entry point
-│   │   │   ├── app.module.ts    # Root module
-│   │   │   ├── prisma/          # Database service
-│   │   │   ├── health/          # Health check
-│   │   │   ├── sites/           # Site management
-│   │   │   └── telemetry/       # MQTT ingestion + REST API
+│   │   │   ├── main.ts             # Entry point
+│   │   │   ├── app.module.ts       # Root module
+│   │   │   ├── common/             # Cross-cutting concerns
+│   │   │   │   ├── database/       #   Prisma module & service
+│   │   │   │   ├── guards/         #   Auth guard
+│   │   │   │   ├── pipes/          #   Zod validation pipe
+│   │   │   │   └── utils/          #   Shared utilities
+│   │   │   └── features/           # Feature modules
+│   │   │       ├── auth/           #   JWT auth (controller, service, types)
+│   │   │       ├── commands/       #   Remote command lifecycle
+│   │   │       ├── failover/       #   Cloud OCPP failover
+│   │   │       ├── health/         #   Liveness & readiness probes
+│   │   │       ├── sites/          #   Site management
+│   │   │       └── telemetry/      #   MQTT ingestion + REST API
 │   │   └── prisma/
-│   │       └── schema.prisma    # Database schema
-│   └── dashboard/               # React/Vite fleet dashboard
+│   │       └── schema.prisma       # Database schema
+│   └── ems-web/                    # React/Vite fleet dashboard
+│       └── src/
+│           ├── App.tsx             # Root — session restore + routing
+│           ├── api.ts              # Backward-compat re-exports
+│           ├── components/
+│           │   ├── dashboard/      # Shell compositor + shared components
+│           │   └── ui/             # shadcn-style primitives
+│           ├── features/           # Feature modules
+│           │   ├── auth/           #   Login form + auth API
+│           │   ├── overview/       #   Fleet overview page
+│           │   ├── energy/         #   Live energy page
+│           │   ├── sites/          #   Sites management page
+│           │   ├── devices/        #   Device inventory page
+│           │   ├── commands/       #   Remote commands page
+│           │   ├── alerts/         #   Alerts page
+│           │   ├── reports/        #   Reports page
+│           │   └── settings/       #   Settings, profile, help pages
+│           ├── layouts/            # Layout components
+│           │   ├── sidebar.tsx     #   Navigation sidebar
+│           │   ├── header.tsx      #   Top header bar
+│           │   └── notification-menu.tsx  # Notification dropdown
+│           └── lib/                # Shared utilities
+│               ├── api-client.ts   #   Fetch wrapper + token mgmt
+│               └── utils.ts        #   cn() and helpers
 ├── packages/
-│   └── shared/                  # Shared TypeScript types
-├── docker-compose.yml           # Dev infrastructure
-└── .env.example                 # Environment template
+│   └── shared/                     # Shared TypeScript types
+├── docker-compose.yml              # Dev infrastructure
+└── .env.example                    # Environment template
 ```
 
 ## Database Schema
